@@ -24,9 +24,9 @@ Share your wordle results and track your stats!
 
 **Known Issues and Planned Features:**
 
-- #1 Leaderboard feature
-- #2 Daily reminder feature
-- #3 Unset channel handling
-- #4 !reparsewordle Rename, history limit
-- #5 Reparse wordle double confirmation
+- Leaderboard feature (#1)
+- Daily reminder feature (#2)
+- Unset channel handling (#3)
+- !reparsewordle Rename, history limit (#4)
+- Reparse wordle double confirmation (#6)
 
