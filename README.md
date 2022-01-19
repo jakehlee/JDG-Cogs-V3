@@ -18,8 +18,8 @@ Share your wordle results and track your stats!
 | Command | Description |
 | -- | -- |
 | `[p]help Wordle` |  Display help message |
-| `[p]setwordlechannel` | Set where the bot should parse Wordle results (admin) |
-| `[p]reparsewordle` | Reparse Wordle results from channel history (admin) |
+| `[p]wordlechannel` | Set where the bot should parse Wordle results (admin) |
+| `[p]wordlereparse [limit]` | Reparse Wordle results from channel history up to `limit` messages (default 1000) (admin)|
 | `[p]wordlestats @user` | Get Wordle statistics for a user |
 
 **Known Issues and Planned Features:**

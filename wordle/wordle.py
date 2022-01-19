@@ -24,10 +24,10 @@ class Wordle(commands.Cog):
         }
 
         self.config.register_member(**default_member)
-        
+
         # Wordle verification regex
         self.w = re.compile(r"Wordle (\d{3,}) (\d{1})\/6")
-    
+
     def _parse_message(self, message):
         """Parse message string and check if it's a valid wordle result"""
 
@@ -57,7 +57,7 @@ class Wordle(commands.Cog):
             # Early exit for messages without requisite emoji rows
             if len(lines) < attempts+2:
                 return None
-            
+
             # Integrity check of emoji grid
             for i in range(2, attempts+2):
                 if not set(lines[i]) <= wordle_charset:
@@ -116,7 +116,7 @@ class Wordle(commands.Cog):
         memberstats = await self.config.member(member).all()
 
         totalgames = len(memberstats['gameids'])
-        
+
         # Calculate values for histogram
         percs = [int((x/totalgames)*100) for x in memberstats['qty']]
         histmax = max(memberstats['qty'])
@@ -149,7 +149,7 @@ class Wordle(commands.Cog):
 
     @commands.command()
     @checks.mod_or_permissions(administrator=True)
-    async def setwordlechannel(self, ctx: commands.Context, channel: discord.TextChannel = None):
+    async def wordlechannel(self, ctx: commands.Context, channel: discord.TextChannel = None):
         """Set channel where users post wordle scores.
         Not passing a channel stops the bot from parsing any channel.
         """
@@ -162,8 +162,8 @@ class Wordle(commands.Cog):
 
     @commands.command()
     @checks.mod_or_permissions(administrator=True)
-    async def reparsewordle(self, ctx: commands.Context):
-        """Reparse wordle results from channel history
+    async def wordlereparse(self, ctx: commands.Context, history_limit: int = 1000):
+        """Reparse wordle results from channel history. Number specifies message limit.
         This might take a while for large channels.
         """
 
@@ -172,21 +172,20 @@ class Wordle(commands.Cog):
         if channelid is None:
             await ctx.send("Set a wordle channel with !setwordlechannel first!")
             return
-        
+
         # Clear existing data
         # TODO: Emoji menu double check first
         await self.config.clear_all_members(guild=ctx.guild)
 
         # Go through message history and reload results
-        # TODO: We might want a history length limit with the channel.history limit kwarg
         channel = ctx.guild.get_channel(channelid)
-        async for message in channel.history(limit=1000, oldest_first=True):
+        async for message in channel.history(limit=history_limit, oldest_first=True):
             gameinfo = self._parse_message(message)
 
             if gameinfo is not None:
                 await self._add_result(message.guild, message.author, gameinfo[0], gameinfo[1])
-        
-        await ctx.send("All wordle results from channel history loaded.")
+
+        await ctx.send(f"wordle results from last {history_limit} messages loaded.")
 
     @commands.Cog.listener()
     async def on_message_without_command(self, message: discord.Message):
@@ -196,7 +195,7 @@ class Wordle(commands.Cog):
 
         # Don't listen to DMs
         if message.guild is None: return
-        
+
         # Only listen to messages from set channel
         if message.channel.id != await self.config.guild(message.guild).channelid(): return
 
@@ -205,7 +204,7 @@ class Wordle(commands.Cog):
         if gameinfo is not None:
             # Add result
             await self._add_result(message.guild, message.author, gameinfo[0], gameinfo[1])
-            
+
             # Notify user
             if gameinfo[1] <= 3:
                 await message.channel.send(
