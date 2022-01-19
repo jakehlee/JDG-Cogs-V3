@@ -154,7 +154,7 @@ class Wordle(commands.Cog):
         # Get scores and sort them 
         memberstats = await self.config.all_members(guild=ctx.guild)
         members = memberstats.keys()
-        scores = [{'member': m, 'total_score': memberstats[m]['total_score']} for m in members]
+        scores = [{'member': m, 'total_score': memberstats[m]['total_score'], 'n_games': len(memberstats[m]['gameids'])} for m in members]
         scores = sorted(scores, key=lambda d: d['total_score'], reverse=True)
         memberobjs = []
         for i in range(5):
@@ -162,11 +162,11 @@ class Wordle(commands.Cog):
             memberobjs.append(this_member)
 
         leaderboard = ""
-        leaderboard += f"\N{FIRST PLACE MEDAL} {memberobjs[0].mention} ({scores[0]['total_score']} points)\n"
-        leaderboard += f"\N{SECOND PLACE MEDAL} {memberobjs[1].mention} ({scores[1]['total_score']} points)\n"
-        leaderboard += f"\N{THIRD PLACE MEDAL} {memberobjs[2].mention} ({scores[2]['total_score']} points)\n"
-        leaderboard += f"4. {memberobjs[3].mention} ({scores[3]['total_score']} points)\n"
-        leaderboard += f"5. {memberobjs[4].mention} ({scores[4]['total_score']} points)"
+        leaderboard += f"\N{FIRST PLACE MEDAL} {memberobjs[0].mention} ({scores[0]['total_score']} points, {scores[0]['n_games']} solves)\n"
+        leaderboard += f"\N{SECOND PLACE MEDAL} {memberobjs[1].mention} ({scores[1]['total_score']} points, {scores[1]['n_games']} solves)\n"
+        leaderboard += f"\N{THIRD PLACE MEDAL} {memberobjs[2].mention} ({scores[2]['total_score']} points, {scores[2]['n_games']} solves)\n"
+        leaderboard += f"4. {memberobjs[3].mention} ({scores[3]['total_score']} points, {scores[3]['n_games']} solves)\n"
+        leaderboard += f"5. {memberobjs[4].mention} ({scores[4]['total_score']} points, {scores[4]['n_games']} solves)"
 
         # Build embed
         channelid = await self.config.guild(ctx.guild).channelid()
@@ -177,7 +177,7 @@ class Wordle(commands.Cog):
             color=await self.bot.get_embed_color(ctx)
         )
         embed.add_field(name="Leaderboard", value=leaderboard)
-        embed.add_field(name="Point Values", value="10 pts for 1 attempt, 5 pts for 2 attempts, 4 for 3, 3 for 4, 2 for 5, 1 for 6", inline=False)
+        embed.add_field(name="Point Values", value="1 attempt: 10 pts\n2 attempts: 5 pts\n3 attempts: 4 pts\n4 attempts: 3 pts\n5 attempts: 2 pts\n6 attempts: 1 pt", inline=False)
 
         await ctx.send(embed=embed, allowed_mentions=None)
 
