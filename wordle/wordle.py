@@ -145,7 +145,42 @@ class Wordle(commands.Cog):
         embed.add_field(name="Total Score", value=memberstats['total_score'], inline=False)
         embed.add_field(name="Current Streak", value=memberstats['curr_streak'], inline=True)
 
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed, allowed_mentions=None)
+
+    @commands.command()
+    async def wordletop(self, ctx: commands.Context):
+        """Show the Wordle top-5 leaderboard."""
+
+        # Get scores and sort them 
+        memberstats = await self.config.all_members(guild=ctx.guild)
+        members = memberstats.keys()
+        scores = [{'member': m, 'total_score': memberstats[m]['total_score']} for m in members]
+        scores = sorted(scores, key=lambda d: d['total_score'], reverse=True)
+        memberobjs = []
+        for i in range(5):
+            this_member = ctx.guild.get_member(scores[i]['member'])
+            memberobjs.append(this_member)
+
+        leaderboard = ""
+        leaderboard += f"\N{FIRST PLACE MEDAL} {memberobjs[0].mention} ({scores[0]['total_score']} points)\n"
+        leaderboard += f"\N{SECOND PLACE MEDAL} {memberobjs[1].mention} ({scores[1]['total_score']} points)\n"
+        leaderboard += f"\N{THIRD PLACE MEDAL} {memberobjs[2].mention} ({scores[2]['total_score']} points)\n"
+        leaderboard += f"4. {memberobjs[3].mention} ({scores[3]['total_score']} points)\n"
+        leaderboard += f"5. {memberobjs[4].mention} ({scores[4]['total_score']} points)"
+
+        # Build embed
+        channelid = await self.config.guild(ctx.guild).channelid()
+        refchannel = ctx.guild.get_channel(channelid).mention if channelid is not None else "N/A"
+        embed = discord.Embed(
+            title=f"{ctx.guild.name} Wordle Leaderboard",
+            description=f"Pulled from messages in {refchannel}",
+            color=await self.bot.get_embed_color(ctx)
+        )
+        embed.add_field(name="Leaderboard", value=leaderboard)
+        embed.add_field(name="Point Values", value="10 pts for 1 attempt, 5 pts for 2 attempts, 4 for 3, 3 for 4, 2 for 5, 1 for 6", inline=False)
+
+        await ctx.send(embed=embed, allowed_mentions=None)
+
 
     @commands.command()
     @checks.mod_or_permissions(administrator=True)

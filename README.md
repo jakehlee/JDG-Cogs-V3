@@ -21,12 +21,10 @@ Share your wordle results and track your stats!
 | `[p]wordlechannel` | Set where the bot should parse Wordle results (admin) |
 | `[p]wordlereparse [limit]` | Reparse Wordle results from channel history up to `limit` messages (default 1000) (admin)|
 | `[p]wordlestats @user` | Get Wordle statistics for a user |
+| `[p]wordletop` | Get Wordle leaderboards for the server |
 
 **Known Issues and Planned Features:**
 
-- Leaderboard feature (#1)
 - Daily reminder feature (#2)
-- Unset channel handling (#3)
-- !reparsewordle Rename, history limit (#4)
 - Reparse wordle double confirmation (#6)
 
