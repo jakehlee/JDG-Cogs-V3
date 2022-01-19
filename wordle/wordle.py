@@ -24,12 +24,18 @@ class Wordle(commands.Cog):
         }
 
         self.config.register_member(**default_member)
+        
+        # Wordle verification regex
+        self.w = re.compile(r"Wordle (\d{3,}) (\d{1})\/6")
     
     def _parse_message(self, message):
         """Parse message string and check if it's a valid wordle result"""
 
         # Possible characters in wordle emoji grid
-        wordle_charset = {'⬛', '⬜', '🟩', '🟨'}
+        wordle_charset = {'\N{BLACK LARGE SQUARE}', \
+                          '\N{WHITE LARGE SQUARE}', \
+                          '\N{LARGE GREEN SQUARE}', \
+                          '\N{LARGE YELLOW SQUARE}'}
 
         # Split into lines
         lines = message.clean_content.split('\n')
@@ -39,7 +45,7 @@ class Wordle(commands.Cog):
             return None
 
         # Parse first line 
-        match = re.match(r"Wordle (\d{3,}) (\d{1})\/6", lines[0])
+        match = self.w.match(lines[0])
         if match is not None:
             gameid = int(match.groups()[0])
             attempts = int(match.groups()[1])
@@ -67,13 +73,13 @@ class Wordle(commands.Cog):
         """Add a user's wordle result to their record"""
 
         # Get previous stats
-        prev = await self.config.member(author).get_raw()
+        prev = await self.config.member(author).all()
 
         # Avoid duplicates
-        if gameid in prev['gameids']:
-            return
-        else:
-            async with self.config.member(author).gameids() as gameids:
+        async with self.config.member(author).gameids() as gameids:
+            if gameid in gameids:
+                return
+            else:
                 gameids.append(gameid)
 
         # Update score
@@ -98,29 +104,6 @@ class Wordle(commands.Cog):
         await self.config.member(author).set_raw('qty', value=newhist)
 
     @commands.command()
-    async def wordlehelp(self, ctx: commands.Context):
-        """Print help message for wordle"""
-
-        embed = discord.Embed(
-            title="Wordle Help",
-            description="How to use the Wordle Cog",
-            color=await self.bot.get_embed_color(ctx)
-        )
-
-        embed.add_field(name="Commands", value= \
-"""
-`!wordlehelp`: Display this help message
-`!setwordlechannel`: Set where Wordle results are posted (admin)
-`!reparsewordle`: Reparse Wordle results from history (admin)
-`!wordlestats @user`: Get Wordle statistics for the user
-""")
-
-        embed.add_field(name="Current Wordle Channel", value=f"{self.bot.get_channel(await self.config.guild(ctx.guild).channelid()).mention}")
-
-        await ctx.send(embed=embed)
-
-
-    @commands.command()
     async def wordlestats(self, ctx: commands.Context, member: discord.Member):
         """Retrieve Wordle Statistics for a single user
 
@@ -130,32 +113,36 @@ class Wordle(commands.Cog):
         - Current streak (days)
         """
 
-        memberstats = await self.config.member(member).get_raw()
+        memberstats = await self.config.member(member).all()
 
         totalgames = len(memberstats['gameids'])
         
+        # Calculate values for histogram
         percs = [int((x/totalgames)*100) for x in memberstats['qty']]
         histmax = max(memberstats['qty'])
         histlens = [int((x/histmax)*10) for x in memberstats['qty']]
+        histbars = ['\N{LARGE GREEN SQUARE}'*h for h in histlens]
 
+        # Build histogram
         histogram = ""
-        histogram += f"Histogram for {totalgames} recorded games:\n"
-        histogram += f"1️⃣: {'🟩'*histlens[0]} ({percs[0]}%)\n"
-        histogram += f"2️⃣: {'🟩'*histlens[1]} ({percs[1]}%)\n"
-        histogram += f"3️⃣: {'🟩'*histlens[2]} ({percs[2]}%)\n"
-        histogram += f"4️⃣: {'🟩'*histlens[3]} ({percs[3]}%)\n"
-        histogram += f"5️⃣: {'🟩'*histlens[4]} ({percs[4]}%)\n"
-        histogram += f"6️⃣: {'🟩'*histlens[5]} ({percs[5]}%)\n"
+        histogram += f"{totalgames} recorded games\n"
+        histogram += f"1\N{COMBINING ENCLOSING KEYCAP} {histbars[0]} {memberstats['qty'][0]} ({percs[0]}%)\n"
+        histogram += f"2\N{COMBINING ENCLOSING KEYCAP} {histbars[1]} {memberstats['qty'][1]} ({percs[1]}%)\n"
+        histogram += f"3\N{COMBINING ENCLOSING KEYCAP} {histbars[2]} {memberstats['qty'][2]} ({percs[2]}%)\n"
+        histogram += f"4\N{COMBINING ENCLOSING KEYCAP} {histbars[3]} {memberstats['qty'][3]} ({percs[3]}%)\n"
+        histogram += f"5\N{COMBINING ENCLOSING KEYCAP} {histbars[4]} {memberstats['qty'][4]} ({percs[4]}%)\n"
+        histogram += f"6\N{COMBINING ENCLOSING KEYCAP} {histbars[5]} {memberstats['qty'][5]} ({percs[5]}%)\n"
 
+        # Build embed
+        channelid = await self.config.guild(ctx.guild).channelid()
+        refchannel = ctx.guild.get_channel(channelid).mention if channelid is not None else "N/A"
         embed = discord.Embed(
             title=f"{member.display_name}'s Wordle Statistics",
-            description=f"Statistics pulled from messages in {self.bot.get_channel(await self.config.guild(ctx.guild).channelid()).mention}",
+            description=f"Pulled from messages in {refchannel}",
             color=await self.bot.get_embed_color(ctx)
         )
         embed.add_field(name="Histogram", value=histogram)
-        embed.add_field(name='\u200B', value='\u200B')
-        embed.add_field(name='\u200B', value='\u200B')
-        embed.add_field(name="Total Score", value=memberstats['total_score'], inline=True)
+        embed.add_field(name="Total Score", value=memberstats['total_score'], inline=False)
         embed.add_field(name="Current Streak", value=memberstats['curr_streak'], inline=True)
 
         await ctx.send(embed=embed)
@@ -181,8 +168,9 @@ class Wordle(commands.Cog):
         """
 
         # Make sure a wordle channel is set first.
-        if self.config.guild(ctx.guild).channelid() is None:
-            ctx.send("Set a wordle channel with !setwordlechannel first!")
+        channelid = await self.config.guild(ctx.guild).channelid()
+        if channelid is None:
+            await ctx.send("Set a wordle channel with !setwordlechannel first!")
             return
         
         # Clear existing data
@@ -191,8 +179,7 @@ class Wordle(commands.Cog):
 
         # Go through message history and reload results
         # TODO: We might want a history length limit with the channel.history limit kwarg
-        channelid = await self.config.guild(ctx.guild).channelid()
-        channel = self.bot.get_channel(channelid)
+        channel = ctx.guild.get_channel(channelid)
         async for message in channel.history(limit=1000, oldest_first=True):
             gameinfo = self._parse_message(message)
 
@@ -205,12 +192,13 @@ class Wordle(commands.Cog):
     async def on_message_without_command(self, message: discord.Message):
         """Listen to users posting their wordle results and add them to stats"""
         # Don't listen to messages from bots
-        if message.author.bot:
-            return
+        if message.author.bot: return
+
+        # Don't listen to DMs
+        if message.guild is None: return
         
         # Only listen to messages from set channel
-        if message.channel.id != await self.config.guild(message.guild).channelid():
-            return
+        if message.channel.id != await self.config.guild(message.guild).channelid(): return
 
         # Check if valid message
         gameinfo = self._parse_message(message)

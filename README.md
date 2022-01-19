@@ -17,10 +17,10 @@ Share your wordle results and track your stats!
 
 | Command | Description |
 | -- | -- |
-| `!wordlehelp` |  Display help message |
-| `!setwordlechannel` | Set where the bot should parse Wordle results (admin) |
-| `!reparsewordle` | Reparse Wordle results from channel history (admin) |
-| `!wordlestats @user` | Get Wordle statistics for a user |
+| `[p]help Wordle` |  Display help message |
+| `[p]setwordlechannel` | Set where the bot should parse Wordle results (admin) |
+| `[p]reparsewordle` | Reparse Wordle results from channel history (admin) |
+| `[p]wordlestats @user` | Get Wordle statistics for a user |
 
 **Known Issues and Planned Features:**
 
