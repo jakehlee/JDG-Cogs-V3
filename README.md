@@ -13,7 +13,7 @@ Cogs for Red-DiscordBot V3 by JDG
 ### Wordle
 Share your wordle results and track your stats!
 
-![wordle_ex](https://user-images.githubusercontent.com/1744665/150012016-efcc2ce3-8e9a-4030-a49d-e6744465ac5b.PNG)
+![wordle_ex2](https://user-images.githubusercontent.com/1744665/150098234-15f95e13-9c8c-40a0-a3a8-f6d1772a86ca.PNG)
 
 | Command | Description |
 | -- | -- |
@@ -27,4 +27,3 @@ Share your wordle results and track your stats!
 
 - Daily reminder feature (#2)
 - Reparse wordle double confirmation (#6)
-
