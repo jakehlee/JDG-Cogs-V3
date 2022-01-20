@@ -149,13 +149,21 @@ class Wordle(commands.Cog):
 
     @commands.command()
     async def wordletop(self, ctx: commands.Context):
-        """Show the Wordle top-5 leaderboard."""
+        """Show the Wordle top-5 leaderboard for total points and average attempts per solve."""
 
         # Get scores and sort them 
         memberstats = await self.config.all_members(guild=ctx.guild)
         members = memberstats.keys()
+
+        # Total scores (higher=better)
         scores = [{'member': m, 'total_score': memberstats[m]['total_score'], 'n_games': len(memberstats[m]['gameids'])} for m in members]
         scores = sorted(scores, key=lambda d: d['total_score'], reverse=True)
+
+        # Average attempts (lower=better)
+        avg_attempts = [{'member': m, 'avg_attempt': sum([q*s for q, s in zip(memberstats[m]['qty'], [1,2,3,4,5,6])]) / len(memberstats[m]['gameids'])} for m in members]
+        avg_attempts = sorted(avg_attempts, key=lambda d: d['avg_attempt'])
+
+        # Build total score leaderboard
         memberobjs = []
         for i in range(5):
             this_member = ctx.guild.get_member(scores[i]['member'])
@@ -168,6 +176,19 @@ class Wordle(commands.Cog):
         leaderboard += f"4. {memberobjs[3].mention} ({scores[3]['total_score']} points, {scores[3]['n_games']} solves)\n"
         leaderboard += f"5. {memberobjs[4].mention} ({scores[4]['total_score']} points, {scores[4]['n_games']} solves)"
 
+        # Build avg attempt leaderboard
+        memberobjs = []
+        for i in range(5):
+            this_member = ctx.guild.get_member(avg_attempts[i]['member'])
+            memberobjs.append(this_member)
+
+        avgboard = ""
+        avgboard += f"\N{FIRST PLACE MEDAL} {memberobjs[0].mention} ({avg_attempts[0]['avg_attempt']:.2f} per solve)\n"
+        avgboard += f"\N{SECOND PLACE MEDAL} {memberobjs[1].mention} ({avg_attempts[1]['avg_attempt']:.2f} per solve)\n"
+        avgboard += f"\N{THIRD PLACE MEDAL} {memberobjs[2].mention} ({avg_attempts[2]['avg_attempt']:.2f} per solve)\n"
+        avgboard += f"4. {memberobjs[3].mention} ({avg_attempts[3]['avg_attempt']:.2f} per solve)\n"
+        avgboard += f"5. {memberobjs[4].mention} ({avg_attempts[4]['avg_attempt']:.2f} per solve)"
+
         # Build embed
         channelid = await self.config.guild(ctx.guild).channelid()
         refchannel = ctx.guild.get_channel(channelid).mention if channelid is not None else "N/A"
@@ -176,7 +197,9 @@ class Wordle(commands.Cog):
             description=f"Pulled from messages in {refchannel}",
             color=await self.bot.get_embed_color(ctx)
         )
-        embed.add_field(name="Leaderboard", value=leaderboard)
+        embed.add_field(name="Total Points", value=leaderboard)
+        embed.add_field(name="Average Attempts", value=avgboard, inline=True)
+
         embed.add_field(name="Point Values", value="1 attempt: 10 pts\n2 attempts: 5 pts\n3 attempts: 4 pts\n4 attempts: 3 pts\n5 attempts: 2 pts\n6 attempts: 1 pt", inline=False)
 
         await ctx.send(embed=embed, allowed_mentions=None)
