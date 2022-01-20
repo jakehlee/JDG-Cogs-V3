@@ -1,5 +1,6 @@
 # JDG-Cogs-V3
 Cogs for Red-DiscordBot V3 by JDG
+Contact on Discord: JDG#1270 
 
 ## Installation
 ```
