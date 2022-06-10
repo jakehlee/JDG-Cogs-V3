@@ -164,37 +164,30 @@ class Wordle(commands.Cog):
         avg_attempts = sorted(avg_attempts, key=lambda d: d['avg_attempt'])
 
         # Build total score leaderboard
-        memberobjs = []
-        for i in range(5):
-            this_member = ctx.guild.get_member(scores[i]['member'])
-            memberobjs.append(this_member)
-
+        prefixes = [f"\N{FIRST PLACE MEDAL}", f"\N{SECOND PLACE MEDAL}", f"\N{THIRD PLACE MEDAL}", "4.", "5."]
         leaderboard = ""
-        leaderboard += f"\N{FIRST PLACE MEDAL} {memberobjs[0].mention} ({scores[0]['total_score']} points, {scores[0]['n_games']} solves)\n"
-        leaderboard += f"\N{SECOND PLACE MEDAL} {memberobjs[1].mention} ({scores[1]['total_score']} points, {scores[1]['n_games']} solves)\n"
-        leaderboard += f"\N{THIRD PLACE MEDAL} {memberobjs[2].mention} ({scores[2]['total_score']} points, {scores[2]['n_games']} solves)\n"
-        leaderboard += f"4. {memberobjs[3].mention} ({scores[3]['total_score']} points, {scores[3]['n_games']} solves)\n"
-        leaderboard += f"5. {memberobjs[4].mention} ({scores[4]['total_score']} points, {scores[4]['n_games']} solves)"
+        if len(members) == 0:
+            leaderboard = "No members found."
+        else:
+            for i in range(min(5, len(members))):
+                leaderboard += f"{prefixes[i]} {ctx.guild.get_member(scores[i]['member']).mention} ({scores[i]['total_score']} points, {scores[i]['n_games']} solves)\n"
+        leaderboard = leaderboard.rstrip()
 
         # Build avg attempt leaderboard
-        memberobjs = []
-        for i in range(5):
-            this_member = ctx.guild.get_member(avg_attempts[i]['member'])
-            memberobjs.append(this_member)
-
         avgboard = ""
-        avgboard += f"\N{FIRST PLACE MEDAL} {memberobjs[0].mention} ({avg_attempts[0]['avg_attempt']:.2f} per solve)\n"
-        avgboard += f"\N{SECOND PLACE MEDAL} {memberobjs[1].mention} ({avg_attempts[1]['avg_attempt']:.2f} per solve)\n"
-        avgboard += f"\N{THIRD PLACE MEDAL} {memberobjs[2].mention} ({avg_attempts[2]['avg_attempt']:.2f} per solve)\n"
-        avgboard += f"4. {memberobjs[3].mention} ({avg_attempts[3]['avg_attempt']:.2f} per solve)\n"
-        avgboard += f"5. {memberobjs[4].mention} ({avg_attempts[4]['avg_attempt']:.2f} per solve)"
+        if len(members) == 0:
+            avgboard = "No members found."
+        else:
+            for i in range(min(5, len(members))):
+                avgboard += f"{prefixes[i]} {ctx.guild.get_member(avg_attempts[i]['member']).mention} ({avg_attempts[i]['avg_attempt']:.2f} per solve)\n"
+        avgboard = avgboard.rstrip()
 
         # Build embed
         channelid = await self.config.guild(ctx.guild).channelid()
         refchannel = ctx.guild.get_channel(channelid).mention if channelid is not None else "N/A"
         embed = discord.Embed(
             title=f"{ctx.guild.name} Wordle Leaderboard",
-            description=f"Pulled from messages in {refchannel}",
+            description=f"Share your results in {refchannel}",
             color=await self.bot.get_embed_color(ctx)
         )
         embed.add_field(name="Total Points", value=leaderboard)
@@ -264,6 +257,10 @@ class Wordle(commands.Cog):
             await self._add_result(message.guild, message.author, gameinfo[0], gameinfo[1])
 
             # Notify user
+            if gameinfo[1] == 1:
+                await message.channel.send(
+                    f"Fantastic solve, {message.author.mention}!!! Updated stats."
+                )
             if gameinfo[1] <= 3:
                 await message.channel.send(
                     f"Great solve, {message.author.mention}! Updated stats."
