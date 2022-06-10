@@ -235,13 +235,13 @@ class Wordle(commands.Cog):
             return
 
         #Reaction poll
-        msg = await ctx.send("Are you sure?")
+        msg = await ctx.send(f"Reparse {history_limit} msgs in {ctx.guild.get_channel(channelid).mention}?")
         start_adding_reactions(msg, ReactionPredicate.YES_OR_NO_EMOJIS)
 
         pred = ReactionPredicate.yes_or_no(msg, ctx.author)
         await ctx.bot.wait_for("reaction_add", check=pred)
         if pred.result is True:
-            await ctx.send("Let's go.")
+            await ctx.send("Starting reparse.")
             # Clear existing data
             await self.config.clear_all_members(guild=ctx.guild)
 
@@ -253,7 +253,7 @@ class Wordle(commands.Cog):
                 if gameinfo is not None:
                     await self._add_result(message.guild, message.author, gameinfo[0], gameinfo[1])
             
-            await ctx.send(f"wordle results from last {history_limit} messages loaded.")
+            await ctx.send(f"Wordle results successfully loaded.")
         else:
             await ctx.send("Nevermind then.")
             return
