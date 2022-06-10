@@ -3,6 +3,9 @@ import re
 
 import discord
 from redbot.core import Config, checks, commands
+from redbot.core.utils.predicates import ReactionPredicate
+from redbot.core.utils.menus import start_adding_reactions
+
 
 class Wordle(commands.Cog):
     """Wordle cog to track statistics and streaks"""
@@ -224,19 +227,29 @@ class Wordle(commands.Cog):
             await ctx.send("Set a wordle channel with !setwordlechannel first!")
             return
 
-        # Clear existing data
-        # TODO: Emoji menu double check first
-        await self.config.clear_all_members(guild=ctx.guild)
+        #Reaction poll
+        msg = await ctx.send(f"Reparse {history_limit} msgs in {ctx.guild.get_channel(channelid).mention}?")
+        start_adding_reactions(msg, ReactionPredicate.YES_OR_NO_EMOJIS)
 
-        # Go through message history and reload results
-        channel = ctx.guild.get_channel(channelid)
-        async for message in channel.history(limit=history_limit, oldest_first=True):
-            gameinfo = self._parse_message(message)
+        pred = ReactionPredicate.yes_or_no(msg, ctx.author)
+        await ctx.bot.wait_for("reaction_add", check=pred)
+        if pred.result is True:
+            await ctx.send("Starting reparse.")
+            # Clear existing data
+            await self.config.clear_all_members(guild=ctx.guild)
 
-            if gameinfo is not None:
-                await self._add_result(message.guild, message.author, gameinfo[0], gameinfo[1])
+            # Go through message history and reload results
+            channel = ctx.guild.get_channel(channelid)
+            async for message in channel.history(limit=history_limit, oldest_first=True):
+                gameinfo = self._parse_message(message)
 
-        await ctx.send(f"wordle results from last {history_limit} messages loaded.")
+                if gameinfo is not None:
+                    await self._add_result(message.guild, message.author, gameinfo[0], gameinfo[1])
+            
+            await ctx.send(f"Wordle results successfully loaded.")
+        else:
+            await ctx.send("Nevermind then.")
+            return
 
     @commands.Cog.listener()
     async def on_message_without_command(self, message: discord.Message):
