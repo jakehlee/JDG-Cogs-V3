@@ -120,13 +120,17 @@ class Wordle(commands.Cog):
 
         totalgames = len(memberstats['gameids'])
 
+        # Build embed
+        channelid = await self.config.guild(ctx.guild).channelid()
+        refchannel = ctx.guild.get_channel(channelid).mention if channelid is not None else "N/A"
+        embed = discord.Embed(
+            title=f"{member.display_name}'s Wordle Statistics",
+            description=f"Pulled from messages in {refchannel}",
+            color=await self.bot.get_embed_color(ctx)
+        )
+
         if totalgames == 0:
             # No games found
-            embed = discord.Embed(
-                title=f"{member.display_name}'s Wordle Statistics",
-                description=f"Pulled from messages in {refchannel}",
-                color=await self.bot.get_embed_color(ctx)
-            )
             embed.add_field(name="Error", value=f"No games found for {member.display_name}")
             await ctx.send(embed=embed, allowed_mentions=None)
             return
@@ -147,14 +151,6 @@ class Wordle(commands.Cog):
         histogram += f"5\N{COMBINING ENCLOSING KEYCAP} {histbars[4]} {memberstats['qty'][4]} ({percs[4]}%)\n"
         histogram += f"6\N{COMBINING ENCLOSING KEYCAP} {histbars[5]} {memberstats['qty'][5]} ({percs[5]}%)\n"
 
-        # Build embed
-        channelid = await self.config.guild(ctx.guild).channelid()
-        refchannel = ctx.guild.get_channel(channelid).mention if channelid is not None else "N/A"
-        embed = discord.Embed(
-            title=f"{member.display_name}'s Wordle Statistics",
-            description=f"Pulled from messages in {refchannel}",
-            color=await self.bot.get_embed_color(ctx)
-        )
         embed.add_field(name="Histogram", value=histogram)
         embed.add_field(name="Total Score", value=memberstats['total_score'], inline=False)
         embed.add_field(name="Current Streak", value=memberstats['curr_streak'], inline=True)
