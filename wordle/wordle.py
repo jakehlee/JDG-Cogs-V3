@@ -38,7 +38,9 @@ class Wordle(commands.Cog):
         wordle_charset = {'\N{BLACK LARGE SQUARE}', \
                           '\N{WHITE LARGE SQUARE}', \
                           '\N{LARGE GREEN SQUARE}', \
-                          '\N{LARGE YELLOW SQUARE}'}
+                          '\N{LARGE YELLOW SQUARE}',\
+                          '\N{LARGE ORANGE SQUARE}', \
+                          '\N{LARGE BLUE SQUARE}'}
 
         # Split into lines
         lines = message.clean_content.split('\n')
