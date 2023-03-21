@@ -120,6 +120,17 @@ class Wordle(commands.Cog):
 
         totalgames = len(memberstats['gameids'])
 
+        if totalgames == 0:
+            # No games found
+            embed = discord.Embed(
+                title=f"{member.display_name}'s Wordle Statistics",
+                description=f"Pulled from messages in {refchannel}",
+                color=await self.bot.get_embed_color(ctx)
+            )
+            embed.add_field(name="Error", value=f"No games found for {member.display_name}")
+            await ctx.send(embed=embed, allowed_mentions=None)
+            return
+
         # Calculate values for histogram
         percs = [int((x/totalgames)*100) for x in memberstats['qty']]
         histmax = max(memberstats['qty'])
