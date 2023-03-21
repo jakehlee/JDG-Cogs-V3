@@ -173,7 +173,11 @@ class Wordle(commands.Cog):
             leaderboard = "No members found."
         else:
             for i in range(min(5, len(members))):
-                leaderboard += f"{prefixes[i]} {ctx.guild.get_member(scores[i]['member']).mention} ({scores[i]['total_score']} points, {scores[i]['n_games']} solves)\n"
+                this_member = ctx.guild.get_member(scores[i]['member'])
+                if this_member is None:
+                    # Member left the server
+                    leaderboard += f"{prefixes[i]} <unknown> ({scores[i]['total_score']} points, {scores[i]['n_games']} solves)\n"
+                leaderboard += f"{prefixes[i]} {this_member.mention} ({scores[i]['total_score']} points, {scores[i]['n_games']} solves)\n"
         leaderboard = leaderboard.rstrip()
 
         # Build avg attempt leaderboard
@@ -182,7 +186,11 @@ class Wordle(commands.Cog):
             avgboard = "No members found."
         else:
             for i in range(min(5, len(members))):
-                avgboard += f"{prefixes[i]} {ctx.guild.get_member(avg_attempts[i]['member']).mention} ({avg_attempts[i]['avg_attempt']:.2f} per solve)\n"
+                this_member = ctx.guild.get_member(avg_attempts[i]['member'])
+                if this_member is None:
+                    # Member left the server
+                    avgboard += f"{prefixes[i]} <unknown> ({avg_attempts[i]['avg_attempt']:.2f} per solve)\n"
+                avgboard += f"{prefixes[i]} {this_member.mention} ({avg_attempts[i]['avg_attempt']:.2f} per solve)\n"
         avgboard = avgboard.rstrip()
 
         # Build embed
