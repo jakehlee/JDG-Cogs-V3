@@ -1,9 +1,9 @@
 {
 	"author": ["JDG"],
-	"bot_version": [3,0,0],
-	"description": "Track and interact with your shared Wordle results.",
+	"min_bot_version": "3.5.0",
+	"description": "Track your Wordle statistics and compete with your friends.",
 	"hidden": false,
-	"install_msg": "Installed Wordle!",
+	"install_msg": "Welcome, specify a Wordle ch with [p]wordlechannel",
 	"short": "A Wordle companion cog.",
 	"tags": ["game", "wordle"]
 }
