@@ -314,7 +314,7 @@ class VLR(commands.Cog):
             sub_event = all_guilds[guild_id]['sub_event']
             sub_team = all_guilds[guild_id]['sub_team']
             notify_lead = all_guilds[guild_id]['notify_lead']
-            notified_cache = all_guilds[guild_id]['notified_cache']
+            notified_cache = all_guilds[guild_id]['notified']
 
             for match in matches:
                 eta_min = str_to_min(match['eta'])
