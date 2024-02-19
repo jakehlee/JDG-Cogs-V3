@@ -27,7 +27,11 @@ Share your wordle results and track your stats!
 ### VLR
 Keep track of the Valorant esports scene!
 
+![vlr_ex1](https://github.com/jakehlee/JDG-Cogs-V3/assets/1744665/a885b36c-520d-4226-8810-eaa673e104fd)
+![vlr_ex2](https://github.com/jakehlee/JDG-Cogs-V3/assets/1744665/5d245696-fd01-496c-8952-37d6273ecfd1)
+
 | Command | Description |
+
 | -- | -- |
 | `[p]help vlr` | Display help message |
 | `[p]vlr channel` | Set where the bot should notify matches and results (admin) |
