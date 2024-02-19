@@ -71,13 +71,16 @@ class VLR(commands.Cog):
     def cog_unload(self):
         self.parse.cancel()
 
+    @commands.group(name="vlr")
+    async def command_vlr(self, ctx: commands.Context):
+        """Commands to get VLR notifications and see upcoming/completed matches."""
 
-    @commands.command()
+    @command_vlr.command(name="channel")
     @checks.mod_or_permissions(administrator=True)
-    async def vlrchannel(self, ctx: commands.Context, channel: discord.TextChannel = None):
+    async def command_vlr_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
         """Set VLR channel for match notifications.
         
-        Example: [p]vlrchannel #valorant
+        Example: [p]vlr channel #valorant
         """
 
         if channel is not None:
@@ -87,25 +90,33 @@ class VLR(commands.Cog):
             await self.config.guild(ctx.guild).channel_id.set(None)
             await ctx.send("VLR channel has been cleared")
     
-    @commands.command()
+    @command_vlr.command(name="leadtime")
     @checks.mod_or_permissions(administrator=True)
-    async def vlrleadtime(self, ctx: commands.Context, minutes: int):
-        """Set how early match notifications should be sent in minutes.
+    async def command_vlr_leadtime(self, ctx: commands.Context, minutes: int):
+        """Set lead time for match notifications in minutes.
 
-        Example: [p]vlrleadtime 15
+        Example: [p]vlr leadtime 15
         """
 
         await self.config.guild(ctx.guild).notify_lead.set(minutes)
         ctx.send(f"Match notifications will be sent {minutes} mins before.")
 
-    @commands.command()
+    @command_vlr.group(name="sub")
+    async def command_vlr_sub(self, ctx: commands.Context):
+        """Subscribe to vlr event and team notifications."""
+
+        sub_event = await self.config.guild(ctx.guild).sub_event()
+        sub_team = await self.config.guild(ctx.guild).sub_team()
+        await ctx.send(f"Current subscriptions:\nEvent subs: {sub_event}\nTeam subs: {sub_team}")
+
+    @command_vlr_sub.command("event")
     @checks.mod_or_permissions(administrator=True)
-    async def vlrsubevent(self, ctx: commands.Context, event: str):
+    async def command_vlr_sub_event(self, ctx: commands.Context, event: str):
         """Subscribe or Unsubscribe from an event.
 
         Notifications will be sent if this substring exists in the event string.
         If there is a space in the event name, wrap it in quotes.
-        Example: [p]vlrsubevent "Game Changers"
+        Example: [p]vlr sub event "Game Changers"
         """
 
         sub_event = await self.config.guild(ctx.guild).sub_event()
@@ -133,15 +144,14 @@ class VLR(commands.Cog):
             else:
                 await ctx.send(f"Event subscriptions unchanged: {sub_event}")
 
-    
-    @commands.command()
+    @command_vlr_sub.command("team")
     @checks.mod_or_permissions(administrator=True)
-    async def vlrsubteam(self, ctx: commands.Context, team: str):
+    async def command_vlr_sub_team(self, ctx: commands.Context, team: str):
         """Subscribe or Unsubscribe from a team.
 
         Notifications will be sent if a team name matches this string exactly.
         If there is a space in the team name, wrap it in quotes. If the team name has special characters, it must be included.
-        Example: [p]vlrsubevent "Sentinels"
+        Example: [p]vlr sub event "Sentinels"
         """
 
         sub_team = await self.config.guild(ctx.guild).sub_team()
@@ -482,10 +492,13 @@ class VLR(commands.Cog):
     #     self.parse.change_interval(seconds=seconds)
     #     await ctx.send(f"Interval changed to {seconds} sec.")
 
-    @commands.command()
+    @command_vlr.command(name='update')
     @checks.mod_or_permissions(administrator=True)
-    async def vlrupdate(self, ctx: commands.Context):
-        """Force update matches from VLR. This does not trigger notifications."""
+    async def vlr_update(self, ctx: commands.Context):
+        """Force update matches from VLR.
+        
+        This does not trigger notifications.
+        """
         await self._getmatches()
         await self._getresults()
         await ctx.send("Updated matches from VLR.")
@@ -543,34 +556,38 @@ class VLR(commands.Cog):
 
         await ctx.send(embed=embed, allowed_mentions=None)
 
-    @commands.command()
-    async def vlrmatches(self, ctx: commands.Context, n: int = 5):
-        """Get upcoming Valorant esports matches.
+    @command_vlr.group(name="matches")
+    async def command_vlr_matches(self, ctx: commands.Context):
+        """Get upcoming Valorant esports matches."""
+
+    @command_vlr_matches.command(name="all")
+    async def command_vlr_matches_all(self, ctx: commands.Context, n: int = 5):
+        """Get all upcoming matches.
         
         Defaults to 5, but request up to 20.
-        Example: [p]vlrmatches 20
+        Example: [p]vlr matches all 20
         """
 
         await self._matchlist(ctx, n)
 
-    @commands.command()
-    async def vlrmatchesvct(self, ctx: commands.Context, n: int = 5):
+    @command_vlr_matches.command(name="vct")
+    async def command_vlr_matches_vct(self, ctx: commands.Context, n: int = 5):
         """Get upcoming VCT esports matches.
         
         Filters for "Champions Tour" in the event string.
         Defaults to 5, but request up to 20.
-        Example: [p]vlrmatchesvct 20
+        Example: [p]vlr matches vct 20
         """
 
         await self._matchlist(ctx, n, cond="VCT")
 
-    @commands.command()
-    async def vlrmatchesgc(self, ctx: commands.Context, n: int = 5):
+    @command_vlr_matches.command(name="gc")
+    async def command_vlr_matches_gc(self, ctx: commands.Context, n: int = 5):
         """Get upcoming Game Changers matches.
         
         Filters for "Game Changers" in the event string.
         Defaults to 5, but request up to 20.
-        Example: [p]vlrmatchesgc 20
+        Example: [p]vlr matches gc 20
         """
 
         await self._matchlist(ctx, n, cond="Game Changers")
@@ -611,7 +628,7 @@ class VLR(commands.Cog):
         )
 
         for result_data in results[:n]:
-            embed_name = f"Completed {result_data['eta']} ago"
+            embed_name = f"Started {result_data['eta']} ago"
 
             matchup = f"{result_data['teams'][0][1]} {result_data['teams'][0][0]} vs. {result_data['teams'][1][1]} {result_data['teams'][1][0]}"
             trophy = '\N{TROPHY}'
@@ -625,62 +642,38 @@ class VLR(commands.Cog):
 
         await ctx.send(embed=embed, allowed_mentions=None)
 
-    @commands.command()
-    async def vlrresults(self, ctx: commands.Context, n: int = 5):
+    @command_vlr.group(name="results")
+    async def command_vlr_results(self, ctx: commands.Context):
+        """Get completed Valorant esports results."""
+
+    @command_vlr_results.command(name="all")
+    async def command_vlr_results_all(self, ctx: commands.Context, n: int = 5):
         """Get completed Valorant esports results.
         
         Defaults to 5, but request up to 20.
-        Example: [p]vlrresults 20
+        Example: [p] vlr results 20
         """
 
         await self._resultlist(ctx, n)
 
-    @commands.command()
-    async def vlrresultsvct(self, ctx: commands.Context, n: int = 5):
+    @command_vlr_results.command(name="vct")
+    async def command_vlr_results_vct(self, ctx: commands.Context, n: int = 5):
         """Get completed VCT results.
         
         Filters for "Champions Tour" in the event string.
         Defaults to 5, but request up to 20.
-        Example: [p]vlrresultsvct 20
+        Example: [p]vlr results vct 20
         """
 
         await self._resultlist(ctx, n, cond="VCT")
 
-    @commands.command()
-    async def vlrresultsgc(self, ctx: commands.Context, n: int = 5):
+    @command_vlr_results.command(name="gc")
+    async def command_vlr_results_gc(self, ctx: commands.Context, n: int = 5):
         """Get completed Game Changers results.
         
         Filters for "Game Changers" in the event string.
         Defaults to 5, but request up to 20.
-        Example: [p]vlrresultsgc 20
+        Example: [p]vlr results gc 20
         """
 
         await self._resultlist(ctx, n, cond="Game Changers")
-
-    # @commands.command()
-    # async def testnotif(self, ctx: commands.Context):
-    #     """Send out notifications for relevant matches"""
-
-    #     # Get matches
-    #     matches = await self.config.match_cache()
-    #     results = await self.config.result_cache()
-    #     all_guilds = await self.config.all_guilds()
-
-    #     # Need to do this for each guild
-    #     for guild_id in all_guilds:
-    #         channel_id = all_guilds[guild_id]['channel_id']
-    #         channel_obj = self.bot.get_channel(channel_id)
-
-    #         sub_event = all_guilds[guild_id]['sub_event']
-    #         sub_team = all_guilds[guild_id]['sub_team']
-    #         notify_lead = all_guilds[guild_id]['notify_lead']
-
-    #         for match in matches:
-    #             eta_min = str_to_min(match['eta'])
-    #             await self._notify(channel_obj, match, "test")
-    #             break
-
-    #         for result in results:
-    #             eta_min = str_to_min(result['eta'])
-    #             await self._result(channel_obj, result, "test")
-    #             break

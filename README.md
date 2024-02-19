@@ -29,15 +29,15 @@ Keep track of the Valorant esports scene!
 
 | Command | Description |
 | -- | -- |
-| `[p]help VLR` | Display help message |
-| `[p]vlrchannel` | Set where the bot should notify matches and results (admin) |
-| `[p]vlrleadtime` | Set how early a match notification should be sent in minutes (admin) |
-| `[p]vlrmatches [n]` | Get n upcoming Valorant esports matches |
-| `[p]vlrmatchesgc [n]` | Get n upcoming Game Changers matches |
-| `[p]vlrmatchesvct [n]` | Get n upcoming VCT matches |
-| `[p]vlresults [n]` | Get n Valorant esports results |
-| `[p]vlrresultsgc [n]` | Get n Game Changers results |
-| `[p]vlrresultsvct [n]` | Get n VCT results |
-| `[p]vlrsubteam "team name"` | Subscribe to a Valorant team's matches |
-| `[p]vlrsubevent "event name"` | Subscribe to an event's matches |
-| `[p]vlrupdate` | Force data pull from VLR. Does not trigger notifications (admin) |
+| `[p]help vlr` | Display help message |
+| `[p]vlr channel` | Set where the bot should notify matches and results (admin) |
+| `[p]vlr leadtime` | Set how early a match notification should be sent in minutes (admin) |
+| `[p]vlr matches all [n]` | Get n upcoming Valorant esports matches |
+| `[p]vlr matches gc [n]` | Get n upcoming Game Changers matches |
+| `[p]vlr matches vct [n]` | Get n upcoming VCT matches |
+| `[p]vlr results all [n]` | Get n Valorant esports results |
+| `[p]vlr results gc [n]` | Get n Game Changers results |
+| `[p]vlr results vct [n]` | Get n VCT results |
+| `[p]vlr sub team "team name"` | Subscribe to a Valorant team's matches |
+| `[p]vlr sub event "event name"` | Subscribe to an event's matches |
+| `[p]vlr update` | Force data pull from VLR. Does not trigger notifications (admin) |
