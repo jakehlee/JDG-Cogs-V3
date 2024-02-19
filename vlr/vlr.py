@@ -60,6 +60,7 @@ class VLR(commands.Cog):
             'channel_id': None,
             'sub_event': ['Game Changers', 'Champions Tour'],
             'sub_team': [],
+            "notified": [],
             "notify_lead": 15
         }
         self.config.register_guild(**default_guild)
@@ -298,10 +299,12 @@ class VLR(commands.Cog):
                 continue
 
             channel_obj = self.bot.get_channel(channel_id)
+            guild_obj = self.bot.get_guild(guild_id)
 
             sub_event = all_guilds[guild_id]['sub_event']
             sub_team = all_guilds[guild_id]['sub_team']
             notify_lead = all_guilds[guild_id]['notify_lead']
+            notified_cache = all_guilds[guild_id]['notified_cache']
 
             for match in matches:
                 eta_min = str_to_min(match['eta'])
@@ -309,11 +312,12 @@ class VLR(commands.Cog):
                 # Notify if the eta is sooner than the lead time
                 # unless it is even earlier than the lead time - update rate
                 # to avoid duplicate notifications
-                if eta_min <= notify_lead and eta_min > notify_lead - (self.POLLING_RATE / 60):
+                if eta_min <= notify_lead:
                     # Notify if the event or team is subscribed
                     subscribed, reason = sub_check(match, sub_event, sub_team)
-                    if subscribed:
-                        await self._notify(channel_obj, match, reason)
+                    # Notify if notification hasn't occurred yet
+                    if match['url'] not in notified_cache and subscribed:
+                        await self._notify(guild_obj, channel_obj, match, reason)
                 
                 elif eta_min > notify_lead:
                     # matches are stored in chronological order, so can break safely
@@ -322,17 +326,18 @@ class VLR(commands.Cog):
             for result in results:
                 eta_min = str_to_min(result['eta'])
 
-                # Notify if the eta is just earlier than the update rate
-                if eta_min <= (self.POLLING_RATE / 60):
-                    # Notify if the event or team is subscribed
-                    subscribed, reason = sub_check(result, sub_event, sub_team)
+                # Notify if the event or team is subscribed
+                subscribed, reason = sub_check(result, sub_event, sub_team)
 
-                    if subscribed:
-                        await self._result(channel_obj, match, reason)
+                if result['url'] in notified_cache and subscribed:
+                    await self._result(guild_obj, channel_obj, match, reason)
 
 
-    async def _notify(self, channel, match_data, reason):
+    async def _notify(self, guild, channel, match_data, reason):
         """ Helper function to send match notification """
+
+        # Get notified cache
+        notified_cache = await self.config.guild(guild).notified()
         
         # Get HTML response for upcoming matches
         url = match_data["url"]
@@ -425,9 +430,15 @@ class VLR(commands.Cog):
         embed_aux = discord.Embed(url=url).set_image(url=team_logos[1])
 
         await channel.send(embeds=[embed, embed_aux], allowed_mentions=None)
+
+        notified_cache.append(url)
+        await self.config.guild(guild).notified.set(notified_cache)
     
-    async def _result(self, channel, result_data, reason):
+    async def _result(self, guild, channel, result_data, reason):
         """Helper function to send match result"""
+
+        # Get notified cache
+        notified_cache = await self.config.guild(guild).notified()
 
         # Build embed
         embed = discord.Embed(
@@ -445,6 +456,9 @@ class VLR(commands.Cog):
         embed.add_field(name='Event', value=f"*{result_data['event']}*", inline=False)
 
         await channel.send(embed=embed, allowed_mentions=None)
+
+        notified_cache.remove(result_data['url'])
+        await self.config.guild(guild).notified.set(notified_cache)
 
     #####################
     # PARSING LOOP TASK #
