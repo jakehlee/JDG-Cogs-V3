@@ -1,0 +1,10 @@
+{
+	"author": ["JDG"],
+	"min_bot_version": "3.5.0",
+	"description": "An unofficial VLR cog to get Valorant esports match notifications, results, and team info.",
+	"hidden": false,
+	"install_msg": "Welcome, set your notif channel with [p]vlrchannel",
+	"short": "An unofficial VLR cog.",
+	"tags": ["esports", "valorant", "vlr", "vct"],
+	"requirements": ["requests", "beautifulsoup4"]
+}

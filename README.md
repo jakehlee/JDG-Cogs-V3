@@ -24,7 +24,20 @@ Share your wordle results and track your stats!
 | `[p]wordlestats @user` | Get Wordle statistics for a user |
 | `[p]wordletop` | Get Wordle leaderboards for the server |
 
-**Known Issues and Planned Features:**
+### VLR
+Keep track of the Valorant esports scene!
 
-- Daily reminder feature (#2)
-- Reparse wordle double confirmation (#6)
+| Command | Description |
+| -- | -- |
+| `[p]help VLR` | Display help message |
+| `[p]vlrchannel` | Set where the bot should notify matches and results (admin) |
+| `[p]vlrleadtime` | Set how early a match notification should be sent in minutes (admin) |
+| `[p]vlrmatches [n]` | Get n upcoming Valorant esports matches |
+| `[p]vlrmatchesgc [n]` | Get n upcoming Game Changers matches |
+| `[p]vlrmatchesvct [n]` | Get n upcoming VCT matches |
+| `[p]vlresults [n]` | Get n Valorant esports results |
+| `[p]vlrresultsgc [n]` | Get n Game Changers results |
+| `[p]vlrresultsvct [n]` | Get n VCT results |
+| `[p]vlrsubteam "team name"` | Subscribe to a Valorant team's matches |
+| `[p]vlrsubevent "event name"` | Subscribe to an event's matches |
+| `[p]vlrupdate` | Force data pull from VLR. Does not trigger notifications (admin) |
