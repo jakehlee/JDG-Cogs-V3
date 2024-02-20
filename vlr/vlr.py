@@ -340,7 +340,7 @@ class VLR(commands.Cog):
                 subscribed, reason = sub_check(result, sub_event, sub_team)
 
                 if result['url'] in notified_cache and subscribed:
-                    await self._result(guild_obj, channel_obj, match, reason)
+                    await self._result(guild_obj, channel_obj, result, reason)
 
 
     async def _notify(self, guild, channel, match_data, reason):
