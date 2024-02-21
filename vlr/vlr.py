@@ -426,10 +426,10 @@ class VLR(commands.Cog):
             title=f"\N{BELL} Upcoming Match in {match_data['eta']}",
             description=matchup,
             color=0xff4654,
-            url=url,
-            footer=f"*Subscribed to {reason}*"
+            url=url
         )
 
+        embed.set_footer(text=f"*Subscribed to {reason}*")
         embed.add_field(name=event_info, value=f"{match_format} | {date_time}", inline=False)
 
         team1_name = team_names[0]
@@ -462,9 +462,9 @@ class VLR(commands.Cog):
             title=f"\N{WHITE HEAVY CHECK MARK} Match Complete",
             description=matchup,
             color=0xff4654,
-            url=result_data['url'],
-            footer=f"*Subscribed to {reason}*"
+            url=result_data['url']
         )
+        embed.set_footer(text=f"*Subscribed to {reason}*")
 
         trophy = '\N{TROPHY}'
         result = f"{trophy if team_A[3] else ''} {team_A[0]} {team_A[2]} : {team_B[2]} {team_B[0]} {trophy if team_B[3] else ''}"
