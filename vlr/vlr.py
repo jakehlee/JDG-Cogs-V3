@@ -419,11 +419,15 @@ class VLR(commands.Cog):
 
 
         # Build embed
+        team_A = match_data['teams'][0]
+        team_B = match_data['teams'][1]
+        matchup = f"{team_A[1]} {team_A[0]} vs. {team_B[1]} {team_B[0]}"
         embed = discord.Embed(
             title=f"\N{BELL} Upcoming Match in {match_data['eta']}",
-            description=f"*Subscribed: {reason}*",
+            description=matchup,
             color=0xff4654,
-            url=url
+            url=url,
+            footer=f"*Subscribed to {reason}*"
         )
 
         embed.add_field(name=event_info, value=f"{match_format} | {date_time}", inline=False)
@@ -451,18 +455,20 @@ class VLR(commands.Cog):
         notified_cache = await self.config.guild(guild).notified()
 
         # Build embed
+        team_A = result_data['teams'][0]
+        team_B = result_data['teams'][1]
+        matchup = f"{team_A[1]} {team_A[0]} vs. {team_B[1]} {team_B[0]}"
         embed = discord.Embed(
             title=f"\N{WHITE HEAVY CHECK MARK} Match Complete",
-            description=f"*Subscribed: {reason}*",
+            description=matchup,
             color=0xff4654,
-            url=result_data['url']
+            url=result_data['url'],
+            footer=f"*Subscribed to {reason}*"
         )
 
-        matchup = f"{result_data['teams'][0][1]} {result_data['teams'][0][0]} vs. {result_data['teams'][1][1]} {result_data['teams'][1][0]}"
         trophy = '\N{TROPHY}'
-        result = f"{trophy if result_data['teams'][0][3] else ''} {result_data['teams'][0][2]} : {result_data['teams'][1][2]} {trophy if result_data['teams'][1][3] else ''}"
-
-        embed.add_field(name=matchup, value=f"||{result}||", inline=False)
+        result = f"{trophy if team_A[3] else ''} {team_A[0]} {team_A[2]} : {team_B[2]} {team_B[0]} {trophy if team_B[3] else ''}"
+        embed.add_field(name='Scoreline', value=f"||{result}||", inline=False)
         embed.add_field(name='Event', value=f"*{result_data['event']}*", inline=False)
 
         await channel.send(embed=embed, allowed_mentions=None)
@@ -543,14 +549,12 @@ class VLR(commands.Cog):
                 embed_name = "\N{LARGE RED CIRCLE} LIVE"
             else:
                 embed_name = f"{match['status']} {match['eta']}"
-
-            teams = "" 
-            teams += " ".join(match['teams'][0][::-1])
-            teams += " vs. "
-            teams += " ".join(match['teams'][1][::-1])
+            team_A = result_data['teams'][0]
+            team_B = result_data['teams'][1]
+            matchup = f"{team_A[1]} {team_A[0]} vs. {team_B[1]} {team_B[0]}"
             event = match['event']
 
-            embed_value = f"[{teams}]({match['url']})\n*{event}*"
+            embed_value = f"[{matchup}]({match['url']})\n*{event}*"
 
             embed.add_field(name=embed_name, value=embed_value, inline=False)
 
