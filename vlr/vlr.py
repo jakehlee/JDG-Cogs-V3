@@ -549,8 +549,8 @@ class VLR(commands.Cog):
                 embed_name = "\N{LARGE RED CIRCLE} LIVE"
             else:
                 embed_name = f"{match['status']} {match['eta']}"
-            team_A = result_data['teams'][0]
-            team_B = result_data['teams'][1]
+            team_A = match['teams'][0]
+            team_B = match['teams'][1]
             matchup = f"{team_A[1]} {team_A[0]} vs. {team_B[1]} {team_B[0]}"
             event = match['event']
 
