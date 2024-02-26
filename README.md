@@ -25,7 +25,7 @@ Share your wordle results and track your stats!
 | `[p]wordletop` | Get Wordle leaderboards for the server |
 
 ### VLR
-Keep track of the Valorant esports scene!
+Keep track of the Valorant esports scene and hold watch parties!
 
 ![vlr_ex1](https://github.com/jakehlee/JDG-Cogs-V3/assets/1744665/a885b36c-520d-4226-8810-eaa673e104fd)
 ![vlr_ex2](https://github.com/jakehlee/JDG-Cogs-V3/assets/1744665/5d245696-fd01-496c-8952-37d6273ecfd1)
@@ -43,8 +43,7 @@ Keep track of the Valorant esports scene!
 | `[p]vlr results vct [n]` | Get n VCT results |
 | `[p]vlr sub team "team name"` | Subscribe to a Valorant team's matches |
 | `[p]vlr sub event "event name"` | Subscribe to an event's matches |
-| `[p]vlr update` | Force data pull from VLR. Does not trigger notifications (admin) |
-| `[p]vlr vc enable "default voice channel name"` | Enable watch party voice chat creation. Members are moved back to the default channel after the watch party ends. Requires "Move Members" and "Manage Channels" permissions.|
-| `[p]vlr vc disable` | Enable watch party voice chats. Requires "Move Members" and "Manage Channels" permissions. |
-| `[p]vlr vc force [url]` | Forces a watch party to be created if the match was not originally subscribed to. |
-
+| `[p]vlr update` | Force data pull from VLR. (admin) |
+| `[p]vlr vc enable "default voice channel name"` | Enable automatic watch party voice chat creation. Members are moved back to the default VC after the watch party ends. Requires "Move Members" and "Manage Channels" permissions.|
+| `[p]vlr vc disable` | Disable watch party voice chats. Deletes all VCs and stops creating more. Requires "Move Members" and "Manage Channels" permissions. |
+| `[p]vlr vc force [https://vlr.gg/url]` | Forces a watch party to be created if the match was not notified. |

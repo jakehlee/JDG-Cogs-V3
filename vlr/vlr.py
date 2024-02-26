@@ -12,7 +12,7 @@ from redbot.core.utils.predicates import ReactionPredicate
 from redbot.core.utils.menus import start_adding_reactions
 
 def str_to_min(time_str):
-    """ parsing match time info """
+    """ Parsing match time info from VLR's status string"""
     total_minutes = 0
     
     if time_str is None:
@@ -33,6 +33,7 @@ def str_to_min(time_str):
     return total_minutes
 
 def get_flag_unicode(flag_str):
+    """ Getting the actual flag unicode from country code. Magic number."""
     country_code = flag_str.split('-')[-1].upper()
     flag_unicode = ''.join(chr(ord(letter) + 127397) for letter in country_code)
     
@@ -50,29 +51,32 @@ class VLR(commands.Cog):
         self.BASE_URL = "https://www.vlr.gg"
 
         default_global = {
-            'match_cache': [],
-            'result_cache': [],
-            'cache_time': None
+            'match_cache': [],      # Caches first page of upcoming matches each poll
+            'result_cache': [],     # Caches first page of results each poll
+            'cache_time': None      # Timestamps last cache update
         }
         self.config.register_global(**default_global)
 
         default_guild = {
-            'channel_id': None,
-            'sub_event': ['Game Changers', 'Champions Tour'],
-            'sub_team': [],
-            "notified": [],
-            "notify_lead": 15,
-            "vc_enabled": False,
-            "vc_default": None,
-            "vc_category": None,
-            "vc_created": []
+            'channel_id': None,                                 # ID of channel where notification embeds are sent
+            'sub_event': ['Game Changers', 'Champions Tour'],   # Subscribed events, defaults to GC and VCT
+            'sub_team': [],                                     # Subscribed teams, no defaults
+            "notified": [],                                     # Match URLs that were notified and results should be sent
+            "notify_lead": 15,                                  # How many minutes before the match a notif should be sent
+            "vc_enabled": False,                                # Whether watch party VCs are enabled
+            "vc_default": None,                                 # Channel ID where members are sent after a watchparty ends
+            "vc_category": None,                                # Internal, keeps track of category channel id
+            "vc_created": []                                    # Lists created VCs so they can be destroyed
         }
         self.config.register_guild(**default_guild)
 
         self.parse.start()
+
+        # Ensure parse loop is using hardcoded polling rate
         self.parse.change_interval(seconds=self.POLLING_RATE)
     
     def cog_unload(self):
+        # Safe exit of task loop
         self.parse.cancel()
 
     @commands.group(name="vlr")
@@ -113,6 +117,7 @@ class VLR(commands.Cog):
     async def command_vlr_sub(self, ctx: commands.Context):
         """Subscribe to vlr event and team notifications."""
 
+        # Messy, but prints every time this group is called for easy copy-paste and subscription awareness
         sub_event = await self.config.guild(ctx.guild).sub_event()
         sub_team = await self.config.guild(ctx.guild).sub_team()
         await ctx.send(f"Current subscriptions:\nEvent subs: {sub_event}\nTeam subs: {sub_team}")
@@ -130,26 +135,32 @@ class VLR(commands.Cog):
         sub_event = await self.config.guild(ctx.guild).sub_event()
 
         if event in sub_event:
+            # Already subscribed, ask if they want to unsubscribe
             msg = await ctx.send(f"Already subscribed to event \"{event}\", unsubscribe?")
             start_adding_reactions(msg, ReactionPredicate.YES_OR_NO_EMOJIS)
             pred = ReactionPredicate.yes_or_no(msg, ctx.author)
             await ctx.bot.wait_for("reaction_add", check=pred)
             if pred.result is True:
+                # Unsubscribe
                 sub_event.remove(event)
                 await self.config.guild(ctx.guild).sub_event.set(sub_event)
                 await ctx.send(f"Unsubscribed from event. Remaining: {sub_event}")
             else:
+                # No change
                 await ctx.send(f"Event subscriptions unchanged: {sub_event}")
         else:
+            # Not already subscribed, ask if they want to subscribe
             msg = await ctx.send(f"Subscribe to event \"{event}\"?")
             start_adding_reactions(msg, ReactionPredicate.YES_OR_NO_EMOJIS)
             pred = ReactionPredicate.yes_or_no(msg, ctx.author)
             await ctx.bot.wait_for("reaction_add", check=pred)
             if pred.result is True:
+                # Subscribe
                 sub_event.append(event)
                 await self.config.guild(ctx.guild).sub_event.set(sub_event)
                 await ctx.send(f"Event subscription added: {sub_event}")
             else:
+                # No change
                 await ctx.send(f"Event subscriptions unchanged: {sub_event}")
 
     @command_vlr_sub.command("team")
@@ -165,26 +176,32 @@ class VLR(commands.Cog):
         sub_team = await self.config.guild(ctx.guild).sub_team()
 
         if team in sub_team:
+            # Already subscribed, ask if they want to unsubscribe
             msg = await ctx.send(f"Already subscribed to team \"{team}\", unsubscribe?")
             start_adding_reactions(msg, ReactionPredicate.YES_OR_NO_EMOJIS)
             pred = ReactionPredicate.yes_or_no(msg, ctx.author)
             await ctx.bot.wait_for("reaction_add", check=pred)
             if pred.result is True:
+                # Unsubscribe
                 sub_team.remove(team)
                 self.config.guild(ctx.guild).sub_team.set(sub_event)
                 await ctx.send(f"Unsubscribed from team. Remaining: {sub_team}")
             else:
+                # No change
                 await ctx.send(f"Team subscriptions unchanged: {sub_team}")
         else:
+            # Not already subscribed, ask if they want to subscribe
             msg = await ctx.send(f"Subscribe to team \"{event}\"?")
             start_adding_reactions(msg, ReactionPredicate.YES_OR_NO_EMOJIS)
             pred = ReactionPredicate.yes_or_no(msg, ctx.author)
             await ctx.bot.wait_for("reaction_add", check=pred)
             if pred.result is True:
+                # Subscribe
                 sub_team.append(team)
                 self.config.guild(ctx.guild).sub_team.set(sub_team)
                 await ctx.send(f"Team subscription added: {sub_team}")
             else:
+                # No change
                 await ctx.send(f"Team subscriptions unchanged: {sub_team}")
     
     #################
@@ -208,14 +225,17 @@ class VLR(commands.Cog):
         
         Example: !vlr vc enable "General Chat"
         """
+        # Users can't easily tag a voice channel from Discord so we have to take a string and look for it
         default_channel = discord.utils.get(ctx.guild.channels, name=default)
         if default_channel is None:
             await ctx.send(f"Error: Failed to find the default voice channel, please double check the name.")
             return
 
+        # Initialize config storage
         await self.config.guild(ctx.guild).vc_enabled.set(True)
         await self.config.guild(ctx.guild).vc_default.set(default_channel.id)
         
+        # Create watch party category for VCs
         category = await ctx.guild.create_category("VLR Watch Parties")
         await self.config.guild(ctx.guild).vc_category.set(category.id)
 
@@ -240,6 +260,7 @@ class VLR(commands.Cog):
         
         await self.config.guild(ctx.guild).vc_created.set([])
 
+        # Delete every watch party voice channel after moving everyone to the default channel
         for vc in vc_created:
             this_channel = self.bot.get_channel(vc[1])
             this_members = this_channel.members
@@ -248,6 +269,7 @@ class VLR(commands.Cog):
             
             await this_channel.delete(reason="VLR VC Disabled")
         
+        # Delete the category too
         await vc_category.delete(reason="VLR VC Disabled")
         
 
@@ -265,6 +287,7 @@ class VLR(commands.Cog):
         if response.status_code != 200:
             print(f"Error: {url} responded with {response.status_code}")
             return
+        # Create soup
         soup = BeautifulSoup(response.content, 'html.parser')
 
         # Team information
@@ -272,10 +295,11 @@ class VLR(commands.Cog):
         team_B = soup.find(class_=["match-header-link-name mod-2"]).get_text(strip=True)
         matchup_text = f"{'-'.join(team_A.split(' '))}-vs-{'-'.join(team_B.split(' '))}"
 
+        # Create VC
         created_channel = await self._create_vc(ctx.guild, url, matchup_text)
         await ctx.send(f"Match party voice channel created: <#{created_channel.id}>")
 
-        # Update notified
+        # Update notified so that when results are sent, VC will also be destroyed naturally
         notified = await self.config.guild(ctx.guild).notified()
         if url not in notified:
             notified.append(url)
@@ -291,8 +315,11 @@ class VLR(commands.Cog):
         vc_category_id = await self.config.guild(guild).vc_category()
         vc_category = guild.get_channel(vc_category_id)
 
+        # Create VC
         vc_object = await vc_category.create_voice_channel(name)
+        # Keep track of which match is which VC
         vc_created.append([url, vc_object.id])
+        # Update config
         await self.config.guild(guild).vc_created.set(vc_created)
 
         return vc_object
@@ -305,16 +332,23 @@ class VLR(commands.Cog):
         vc_created = await self.config.guild(guild).vc_created()
 
         remaining = []
+        # This isn't efficient but can't serialize sets/dicts
         for vc in vc_created:
             if url == vc[0]:
+                # Found the VC for this match
                 this_channel = self.bot.get_channel(vc[1])
+                # Move everyone to default channel
                 this_members = this_channel.members
                 for m in this_members:
                     await m.move_to(vc_default)
+                # Delete this channel
                 await this_channel.delete(reason="Match Ended")
+                # Don't break in case we need to clean up duplicate VCs
             else:
+                # Keep the unrelated VCs
                 remaining.append(vc)
         
+        # Update remaining VCs
         await self.config.guild(guild).vc_created.set(remaining)
 
 
@@ -332,6 +366,7 @@ class VLR(commands.Cog):
         if response.status_code != 200:
             print(f"Error: {url} responded with {response.status_code}")
             return
+        # Create Soup
         soup = BeautifulSoup(response.content, 'html.parser')
 
         # Find listed matches
@@ -343,7 +378,7 @@ class VLR(commands.Cog):
             match_url = self.BASE_URL + match.get('href')
             
             # Extract the time information
-            # This is hard, webpage adjusts for local timezone
+            # This is hard, webpage adjusts for local timezone, skip
             #match_time = match.find(class_='match-item-time').get_text(strip=True)
             
             # Check if the match is live or upcoming
@@ -361,6 +396,7 @@ class VLR(commands.Cog):
             # Extract event information
             event_info = match.find(class_='match-item-event').get_text().replace('\t', '').strip()
 
+            # Add to match data cache
             match_data.append({
                 'url': match_url,
                 'status': live_or_upcoming,
@@ -369,6 +405,7 @@ class VLR(commands.Cog):
                 'event': event_info
             })
         
+        # Push everything to config
         await self.config.match_cache.set(match_data)
         await self.config.cache_time.set(datetime.now(timezone.utc).isoformat())
 
@@ -382,6 +419,7 @@ class VLR(commands.Cog):
         if response.status_code != 200:
             print(f"Error: {url} responded with {response.status_code}")
             return
+        # Create soup
         soup = BeautifulSoup(response.content, 'html.parser')
 
         # Find listed matches
@@ -408,6 +446,7 @@ class VLR(commands.Cog):
             # Extract event information
             event_info = match.find(class_='match-item-event').get_text().replace('\t', '').strip()
 
+            # Add to result data cache
             match_data.append({
                 'url': match_url,
                 'status': 'Completed',
@@ -416,6 +455,7 @@ class VLR(commands.Cog):
                 'event': event_info
             })
         
+        # Push everything to config
         await self.config.result_cache.set(match_data)
         await self.config.cache_time.set(datetime.now(timezone.utc).isoformat())
 
@@ -426,11 +466,15 @@ class VLR(commands.Cog):
             """Check if the match is subscribed to"""
             subscribed = False
             reason = ""
+
+            # Substring match to find subscribed event
             for se in sub_event:
                 if se in match['event']:
                     subscribed = True
                     reason = f"Event: {se}"
                     break
+            
+            # Exact string match to find subscribed team
             if not subscribed:
                 for st in sub_team:
                     if st == match['teams'][0][0] or st == match['teams'][1][0]:
@@ -447,6 +491,8 @@ class VLR(commands.Cog):
         # Need to do this for each guild
         all_guilds = await self.config.all_guilds()
         for guild_id in all_guilds:
+            
+            # Get notification channel ID, if one isn't sent we don't send notifications
             channel_id = all_guilds[guild_id]['channel_id']
             if channel_id is None:
                 continue
@@ -460,26 +506,27 @@ class VLR(commands.Cog):
             notified_cache = all_guilds[guild_id]['notified']
 
             for match in matches:
+                # For each match, check if it's time to send a notification
                 eta_min = str_to_min(match['eta'])
                 
-                # Notify if the eta is sooner than the lead time
+                # Notify if the eta is sooner than the lead time or if it's LIVE already
                 if eta_min <= notify_lead or match['status'] == 'LIVE':
-                    # Notify if the event or team is subscribed
+                    # Check if we're subscribed to this match
                     subscribed, reason = sub_check(match, sub_event, sub_team)
-                    # Notify if notification hasn't occurred yet
+                    # Notify if notification hasn't occurred yet, otherwise it's a duplicate
                     if match['url'] not in notified_cache and subscribed:
+                        # This helper function also updates the notified cache
                         await self._notify(guild_obj, channel_obj, match, reason)
                 
                 elif eta_min > notify_lead:
-                    # matches are stored in chronological order, so can break safely
+                    # Matches are sorted soonest to latest so we can break safely 
                     break
             
             for result in results:
+                # For each result, check if we should send a notification
                 eta_min = str_to_min(result['eta'])
 
-                # Notify if the event or team is subscribed
-                subscribed, reason = sub_check(result, sub_event, sub_team)
-
+                # Send if we sent a pre-match notification about this match
                 if result['url'] in notified_cache:
                     await self._result(guild_obj, channel_obj, result, reason)
 
@@ -490,6 +537,7 @@ class VLR(commands.Cog):
         # Get notified cache
         notified_cache = await self.config.guild(guild).notified()
         
+        # We want to scrape the match page to get full player information
         # Get HTML response for upcoming matches
         url = match_data["url"]
         response = requests.get(url)
@@ -497,6 +545,7 @@ class VLR(commands.Cog):
         if response.status_code != 200:
             print(f"Error: {url} responded with {response.status_code}")
             return
+        # Create soup
         soup = BeautifulSoup(response.content, 'html.parser')
 
         # Team information
@@ -577,25 +626,32 @@ class VLR(commands.Cog):
             url=url
         )
 
-        embed.set_footer(text=f"*Subscribed to {reason}*")
+        # Footer to explain why we're sending this notification
+        embed.set_footer(text=f"Subscribed to {reason}")
         embed.add_field(name=event_info, value=f"{match_format} | {date_time}", inline=False)
 
+        # Team 1 information inline
         team1_name = team_names[0]
         team1_val = '\n'.join([f"\N{BUSTS IN SILHOUETTE} [Team]({team_urls[0]})"]+[f"{p['flag']} [{p['name']}]({p['url']})" for p in team1_players])
         embed.add_field(name=team1_name, value=team1_val, inline=True)
 
+        # Team 2 information inline
         team2_name = team_names[1]
         team2_val = '\n'.join([f"\N{BUSTS IN SILHOUETTE} [Team]({team_urls[1]})"]+[f"{p['flag']} [{p['name']}]({p['url']})" for p in team2_players])
         embed.add_field(name=team2_name, value=team2_val, inline=True)
 
+        # Tag the voice channel where the watch party is happening if it's enabled
         if vc_enabled:
             embed.add_field(name="Watch Party", value=f"<#{created_vc.id}>", inline=False)
 
+        # Team logo images
         embed.set_image(url=team_logos[0])
         embed_aux = discord.Embed(url=url).set_image(url=team_logos[1])
 
+        # Send embed
         await channel.send(embeds=[embed, embed_aux], allowed_mentions=None)
 
+        # Update cache, notification successfully sent
         notified_cache.append(url)
         await self.config.guild(guild).notified.set(notified_cache)
     
@@ -606,28 +662,36 @@ class VLR(commands.Cog):
         notified_cache = await self.config.guild(guild).notified()
 
         # Build embed
+        # Matchup string
         team_A = result_data['teams'][0]
         team_B = result_data['teams'][1]
         matchup = f"{team_A[1]} {team_A[0]} vs. {team_B[1]} {team_B[0]}"
+
+        # Embed object
         embed = discord.Embed(
             title=f"\N{WHITE HEAVY CHECK MARK} Match Complete",
             description=matchup,
             color=0xff4654,
             url=result_data['url']
         )
-        embed.set_footer(text=f"*Subscribed to {reason}*")
 
+        # Footer to explain why this was sent
+        embed.set_footer(text=f"Subscribed to {reason}")
+
+        # Spoilered match result with trophy emoji
         trophy = '\N{TROPHY}'
         result = f"{trophy if team_A[3] else ''} {team_A[0]} {team_A[2]} : {team_B[2]} {team_B[0]} {trophy if team_B[3] else ''}"
         embed.add_field(name='Scoreline', value=f"||{result}||", inline=False)
         embed.add_field(name='Event', value=f"*{result_data['event']}*", inline=False)
 
+        # Send embed
         await channel.send(embed=embed, allowed_mentions=None)
 
+        # Update cache, result successfully sent
         notified_cache.remove(result_data['url'])
         await self.config.guild(guild).notified.set(notified_cache)
         
-        # Delete voice channel if disabled
+        # Delete voice channel if enabled
         vc_enabled = await self.config.guild(guild).vc_enabled()
         if vc_enabled:
             await self._delete_vc(guild, result_data['url'])
@@ -646,8 +710,10 @@ class VLR(commands.Cog):
 
     @parse.before_loop
     async def before_parse(self):
+        # Don't start parsing until the bot is ready
         await self.bot.wait_until_ready()
 
+    # Disabled because this would be a global command but could be useful for debugging
     # @commands.command()
     # async def vlrinterval(self, ctx: commands.Context, seconds: int = 300):
     #     """Set how often to retrieve matches from vlr in seconds. Defaults to 300."""
@@ -659,11 +725,12 @@ class VLR(commands.Cog):
     @checks.mod_or_permissions(administrator=True)
     async def vlr_update(self, ctx: commands.Context):
         """Force update matches from VLR.
-        
-        This does not trigger notifications.
         """
+        # Useful if we missed a polling cycle due to VLR server error
+        # Notifications can be sent because caching prevents duplicates
         await self._getmatches()
         await self._getresults()
+        await self._sendnotif()
         await ctx.send("Updated matches from VLR.")
 
     ################
@@ -676,19 +743,23 @@ class VLR(commands.Cog):
         # Don't print more than 20 matches at any point
         n = min(n, 20)
 
+        # Get match cache
         matches = await self.config.match_cache()
         cache_time = await self.config.cache_time()
 
+        # Get how long the cache was updated
         cache_datetime = datetime.fromisoformat(cache_time)
         now_datetime = datetime.now(timezone.utc)
         delta = int((now_datetime - cache_datetime).total_seconds())
 
+        # Couldn't find anything in the cache, forcing an update
         if len(matches) == 0:
             print("Vlr match cache unpopulated, hard pulling")
             await self._getmatches()
             matches = await self.config.match_cache()
             cache_time = await self.config.cache_time()
-        
+
+        # Filter matches depending on which major categories were requested 
         if cond == "VCT":
             matches = [m for m in matches if "Champions Tour" in m['event']]
         elif cond == "Game Changers":
@@ -701,6 +772,7 @@ class VLR(commands.Cog):
             color=0xff4654
         )
 
+        # New field for each match
         for match in matches[:n]:
             if match['status'] == 'LIVE':
                 embed_name = "\N{LARGE RED CIRCLE} LIVE"
@@ -715,6 +787,7 @@ class VLR(commands.Cog):
 
             embed.add_field(name=embed_name, value=embed_value, inline=False)
 
+        # Send embed
         await ctx.send(embed=embed, allowed_mentions=None)
 
     @command_vlr.group(name="matches")
@@ -763,19 +836,23 @@ class VLR(commands.Cog):
         # Don't print more than 20 matches at any point
         n = min(n, 20)
 
+        # Get results cache
         results = await self.config.result_cache()
         cache_time = await self.config.cache_time()
 
+        # Get how long ago the cache was updated
         cache_datetime = datetime.fromisoformat(cache_time)
         now_datetime = datetime.now(timezone.utc)
         delta = int((now_datetime - cache_datetime).total_seconds())
 
+        # Couldn't find anything in the cache, forcing an update
         if len(results) == 0:
             print("Vlr match cache unpopulated, hard pulling")
             await self._getresults()
             results = await self.config.result_cache()
             cache_time = await self.config.cache_time()
         
+        # Filter results depending on which major categories were requested
         if cond == "VCT":
             results = [m for m in results if "Champions Tour" in m['event']]
         elif cond == "Game Changers":
@@ -788,6 +865,7 @@ class VLR(commands.Cog):
             color=0xff4654
         )
 
+        # New field for each result
         for result_data in results[:n]:
             embed_name = f"Started {result_data['eta']} ago"
 
@@ -797,10 +875,12 @@ class VLR(commands.Cog):
 
             event = result_data['event']
 
+            # Needs to be spoilered
             embed_value = f"[{matchup}]({result_data['url']})\n||{result}||\n*{event}*"
 
             embed.add_field(name=embed_name, value=embed_value, inline=False)
 
+        # Send embed
         await ctx.send(embed=embed, allowed_mentions=None)
 
     @command_vlr.group(name="results")
