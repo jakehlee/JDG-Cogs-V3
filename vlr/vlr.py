@@ -280,7 +280,7 @@ class VLR(commands.Cog):
         if url not in notified:
             notified.append(url)
             await self.config.guild(ctx.guild).notified.set(notified)
-        
+
     async def _create_vc(self, guild: discord.Guild, url: str, name: str):
         """Create a watch party VC
         
@@ -308,7 +308,7 @@ class VLR(commands.Cog):
         for vc in vc_created:
             if url == vc[0]:
                 this_channel = self.bot.get_channel(vc[1])
-                this_members = this_channels.members
+                this_members = this_channel.members
                 for m in this_members:
                     await m.move_to(vc_default)
                 await this_channel.delete(reason="Match Ended")
