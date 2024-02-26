@@ -528,7 +528,7 @@ class VLR(commands.Cog):
 
                 # Send if we sent a pre-match notification about this match
                 if result['url'] in notified_cache:
-                    await self._result(guild_obj, channel_obj, result, reason)
+                    await self._result(guild_obj, channel_obj, result)
 
 
     async def _notify(self, guild, channel, match_data, reason):
@@ -655,7 +655,7 @@ class VLR(commands.Cog):
         notified_cache.append(url)
         await self.config.guild(guild).notified.set(notified_cache)
     
-    async def _result(self, guild, channel, result_data, reason):
+    async def _result(self, guild, channel, result_data):
         """Helper function to send match result"""
 
         # Get notified cache
@@ -674,9 +674,6 @@ class VLR(commands.Cog):
             color=0xff4654,
             url=result_data['url']
         )
-
-        # Footer to explain why this was sent
-        embed.set_footer(text=f"Subscribed to {reason}")
 
         # Spoilered match result with trophy emoji
         trophy = '\N{TROPHY}'
