@@ -61,7 +61,11 @@ class VLR(commands.Cog):
             'sub_event': ['Game Changers', 'Champions Tour'],
             'sub_team': [],
             "notified": [],
-            "notify_lead": 15
+            "notify_lead": 15,
+            "vc_enabled": False,
+            "vc_default": None,
+            "vc_category": None,
+            "vc_created": []
         }
         self.config.register_guild(**default_guild)
 
@@ -100,6 +104,10 @@ class VLR(commands.Cog):
 
         await self.config.guild(ctx.guild).notify_lead.set(minutes)
         ctx.send(f"Match notifications will be sent {minutes} mins before.")
+
+    ##############################
+    # NOTIFICATION SUBSCRIPTIONS #
+    ##############################
 
     @command_vlr.group(name="sub")
     async def command_vlr_sub(self, ctx: commands.Context):
@@ -178,6 +186,141 @@ class VLR(commands.Cog):
                 await ctx.send(f"Team subscription added: {sub_team}")
             else:
                 await ctx.send(f"Team subscriptions unchanged: {sub_team}")
+    
+    #################
+    # Voice Channel #
+    #################
+
+    @command_vlr.group(name="vc")
+    async def command_vlr_vc(self, ctx: commands.Context):
+        """Enable or disable watch party voice channel creation."""
+
+        vc_enabled = await self.config.guild(ctx.guild).vc_enabled()
+        await ctx.send(f"Watch party voice channel creation is currently {'enabled' if vc_enabled else 'disabled'}")
+
+    @command_vlr_vc.command(name="enable")
+    @commands.bot_has_guild_permissions(move_members=True, manage_channels=True)
+    @checks.mod_or_permissions(administrator=True)
+    async def command_vlr_vc_enable(self, ctx: commands.Context, default: str = None):
+        """ Enable auto-created watch party voice channels.
+        After the match ends, all members will be moved to the default voice channel.
+        The default voice channel name should be its exact name.
+        
+        Example: !vlr vc enable "General Chat"
+        """
+        default_channel = discord.utils.get(ctx.guild.channels, name=default)
+        if default_channel is None:
+            await ctx.send(f"Error: Failed to find the default voice channel, please double check the name.")
+            return
+
+        await self.config.guild(ctx.guild).vc_enabled.set(True)
+        await self.config.guild(ctx.guild).vc_default.set(default_channel.id)
+        
+        category = await ctx.guild.create_category("VLR Watch Parties")
+        await self.config.guild(ctx.guild).vc_category.set(category.id)
+
+        await ctx.send(f"Match party voice channel creation enabled with default channel <#{default_channel.id}>")
+        await ctx.send(f"Please ensure bot has a role with 'Move Members' and 'Manage Channels' permissions.")
+
+
+    @command_vlr_vc.command(name="disable")
+    @commands.bot_has_guild_permissions(move_members=True, manage_channels=True)
+    @checks.mod_or_permissions(administrator=True)
+    async def command_vlr_vc_disable(self, ctx: commands.Context):
+        """ Disable auto-created watch party voice channels.
+        All currently-created voice channels will be removed.
+
+        Example: !vlr vc disable
+        """
+        default_id = await self.config.guild(ctx.guild).vc_default()
+        default_channel = self.bot.get_channel(default_id)
+        vc_category_id = await self.config.guild(ctx.guild).vc_category()
+        vc_category = self.bot.get_channel(vc_category_id)
+        vc_created = await self.config.guild(ctx.guild).vc_created()
+        
+        await self.config.guild(ctx.guild).vc_created.set([])
+
+        for vc in vc_created:
+            this_channel = self.bot.get_channel(vc[1])
+            this_members = this_channel.members
+            for m in this_members:
+                await m.move_to(default_channel)
+            
+            await this_channel.delete(reason="VLR VC Disabled")
+        
+        await vc_category.delete(reason="VLR VC Disabled")
+        
+
+    @command_vlr_vc.command(name="force")
+    @commands.bot_has_guild_permissions(manage_channels=True)
+    async def command_vlr_vc_force(self, ctx: commands.Context, url: str):
+        """ Force-create a watch party channel if it wasn't notified
+        
+        Example: !vlr vc force https://www.vlr.gg/111111/link-to-match-page
+        """
+
+        # Get HTML response
+        response = requests.get(url)
+        # Handle non-200 response
+        if response.status_code != 200:
+            print(f"Error: {url} responded with {response.status_code}")
+            return
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        # Team information
+        team_A = soup.find(class_=["match-header-link-name mod-1"]).get_text(strip=True)
+        team_B = soup.find(class_=["match-header-link-name mod-2"]).get_text(strip=True)
+        matchup_text = f"{'-'.join(team_A.split(' '))}-vs-{'-'.join(team_B.split(' '))}"
+
+        created_channel = await self._create_vc(ctx.guild, url, matchup_text)
+        await ctx.send(f"Match party voice channel created: <#{created_channel.id}>")
+
+        # Update notified
+        notified = await self.config.guild(ctx.guild).notified()
+        if url not in notified:
+            notified.append(url)
+            await self.config.guild(ctx.guild).notified.set(notified)
+        
+    async def _create_vc(self, guild: discord.Guild, url: str, name: str):
+        """Create a watch party VC
+        
+        Returns the created voice channel object
+        """
+
+        vc_created = await self.config.guild(guild).vc_created()
+        vc_category_id = await self.config.guild(guild).vc_category()
+        vc_category = guild.get_channel(vc_category_id)
+
+        vc_object = await vc_category.create_voice_channel(name)
+        vc_created.append([url, vc_object.id])
+        await self.config.guild(guild).vc_created.set(vc_created)
+
+        return vc_object
+
+    async def _delete_vc(self, guild: discord.Guild, url: str):
+        """Delete a watch party VC"""
+
+        vc_default_id = await self.config.guild(guild).vc_default()
+        vc_default = guild.get_channel(vc_default_id)
+        vc_created = await self.config.guild(guild).vc_created()
+
+        remaining = []
+        for vc in vc_created:
+            if url == vc[0]:
+                this_channel = self.bot.get_channel(vc[1])
+                this_members = this_channels.members
+                for m in this_members:
+                    await m.move_to(vc_default)
+                await this_channel.delete(reason="Match Ended")
+            else:
+                remaining.append(vc)
+        
+        await self.config.guild(guild).vc_created.set(remaining)
+
+
+    #####################
+    # Utility Functions #
+    #####################
 
     async def _getmatches(self):
         """Parse matches from vlr"""
@@ -320,9 +463,7 @@ class VLR(commands.Cog):
                 eta_min = str_to_min(match['eta'])
                 
                 # Notify if the eta is sooner than the lead time
-                # unless it is even earlier than the lead time - update rate
-                # to avoid duplicate notifications
-                if eta_min <= notify_lead:
+                if eta_min <= notify_lead or match['status'] == 'LIVE':
                     # Notify if the event or team is subscribed
                     subscribed, reason = sub_check(match, sub_event, sub_team)
                     # Notify if notification hasn't occurred yet
@@ -339,7 +480,7 @@ class VLR(commands.Cog):
                 # Notify if the event or team is subscribed
                 subscribed, reason = sub_check(result, sub_event, sub_team)
 
-                if result['url'] in notified_cache and subscribed:
+                if result['url'] in notified_cache:
                     await self._result(guild_obj, channel_obj, result, reason)
 
 
@@ -417,11 +558,18 @@ class VLR(commands.Cog):
                 else:
                     team2_players.append(player_info)
 
-
-        # Build embed
+        # Matchup String
         team_A = match_data['teams'][0]
         team_B = match_data['teams'][1]
         matchup = f"{team_A[1]} {team_A[0]} vs. {team_B[1]} {team_B[0]}"
+        matchup_text = f"{'-'.join(team_A[0].split(' '))}-vs-{'-'.join(team_B[0].split(' '))}"
+
+        # Create voice channel if enabled
+        vc_enabled = await self.config.guild(guild).vc_enabled()
+        if vc_enabled:
+            created_vc = await self._create_vc(guild, url, matchup_text)
+
+        # Build embed
         embed = discord.Embed(
             title=f"\N{BELL} Upcoming Match in {match_data['eta']}",
             description=matchup,
@@ -439,6 +587,9 @@ class VLR(commands.Cog):
         team2_name = team_names[1]
         team2_val = '\n'.join([f"\N{BUSTS IN SILHOUETTE} [Team]({team_urls[1]})"]+[f"{p['flag']} [{p['name']}]({p['url']})" for p in team2_players])
         embed.add_field(name=team2_name, value=team2_val, inline=True)
+
+        if vc_enabled:
+            embed.add_field(name="Watch Party", value=f"<#{created_vc.id}>", inline=False)
 
         embed.set_image(url=team_logos[0])
         embed_aux = discord.Embed(url=url).set_image(url=team_logos[1])
@@ -475,6 +626,12 @@ class VLR(commands.Cog):
 
         notified_cache.remove(result_data['url'])
         await self.config.guild(guild).notified.set(notified_cache)
+        
+        # Delete voice channel if disabled
+        vc_enabled = await self.config.guild(guild).vc_enabled()
+        if vc_enabled:
+            await self._delete_vc(guild, result_data['url'])
+
 
     #####################
     # PARSING LOOP TASK #
