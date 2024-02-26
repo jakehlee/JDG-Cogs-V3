@@ -44,3 +44,7 @@ Keep track of the Valorant esports scene!
 | `[p]vlr sub team "team name"` | Subscribe to a Valorant team's matches |
 | `[p]vlr sub event "event name"` | Subscribe to an event's matches |
 | `[p]vlr update` | Force data pull from VLR. Does not trigger notifications (admin) |
+| `[p]vlr vc enable "default voice channel name"` | Enable watch party voice chat creation. Members are moved back to the default channel after the watch party ends. Requires "Move Members" and "Manage Channels" permissions.|
+| `[p]vlr vc disable` | Enable watch party voice chats. Requires "Move Members" and "Manage Channels" permissions. |
+| `[p]vlr vc force [url]` | Forces a watch party to be created if the match was not originally subscribed to. |
+
