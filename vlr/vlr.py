@@ -347,6 +347,10 @@ class VLR(commands.Cog):
         vc_default = guild.get_channel(vc_default_id)
 
         async with self.config.guild(guild).vc_created() as vc_created:
+            # Empty is list
+            if type(vc_created) is list:
+                return
+
             channel_id = vc_created.pop(url, None)
             if channel_id is not None:
                 channel_obj = self.bot.get_channel(channel_id)
