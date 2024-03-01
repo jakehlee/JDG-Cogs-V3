@@ -1,6 +1,7 @@
 import asyncio
 import re
 from datetime import datetime, timezone
+import time
 
 import requests
 from bs4 import BeautifulSoup
@@ -66,7 +67,7 @@ class VLR(commands.Cog):
             "vc_enabled": False,                                # Whether watch party VCs are enabled
             "vc_default": None,                                 # Channel ID where members are sent after a watchparty ends
             "vc_category": None,                                # Internal, keeps track of category channel id
-            "vc_created": []                                    # Lists created VCs so they can be destroyed
+            "vc_created": {}                                    # Lists created VCs so they can be destroyed
         }
         self.config.register_guild(**default_guild)
 
@@ -78,6 +79,7 @@ class VLR(commands.Cog):
     def cog_unload(self):
         # Safe exit of task loop
         self.parse.cancel()
+        self.command_vlr_vc_disable()
 
     @commands.group(name="vlr")
     async def command_vlr(self, ctx: commands.Context):
@@ -230,6 +232,9 @@ class VLR(commands.Cog):
         if default_channel is None:
             await ctx.send(f"Error: Failed to find the default voice channel, please double check the name.")
             return
+        
+        if await self.config.guild(ctx.guild).vc_enabled():
+            return
 
         # Initialize config storage
         await self.config.guild(ctx.guild).vc_enabled.set(True)
@@ -252,26 +257,34 @@ class VLR(commands.Cog):
 
         Example: !vlr vc disable
         """
-        default_id = await self.config.guild(ctx.guild).vc_default()
-        default_channel = self.bot.get_channel(default_id)
-        vc_category_id = await self.config.guild(ctx.guild).vc_category()
-        vc_category = self.bot.get_channel(vc_category_id)
-        vc_created = await self.config.guild(ctx.guild).vc_created()
+        if not await self.config.guild(ctx.guild).vc_enabled():
+            return
+
+        default_channel = self.bot.get_channel(await self.config.guild(ctx.guild).vc_default())
+        vc_category = self.bot.get_channel(await self.config.guild(ctx.guild).vc_category())
         
         await self.config.guild(ctx.guild).vc_enabled.set(False)
-        await self.config.guild(ctx.guild).vc_created.set([])
 
         # Delete every watch party voice channel after moving everyone to the default channel
-        for vc in vc_created:
-            this_channel = self.bot.get_channel(vc[1])
-            this_members = this_channel.members
-            for m in this_members:
-                await m.move_to(default_channel)
+        async with self.config.guild(ctx.guild).vc_created() as vc_created:
+            for vc in vc_created:
+                this_channel = self.bot.get_channel(vc_created[vc])
+                if this_channel is None:
+                    # Already deleted
+                    continue
+                this_members = this_channel.members
+                for m in this_members:
+                    await m.move_to(default_channel)
+                
+                await this_channel.delete(reason="VLR VC Disabled")
             
-            await this_channel.delete(reason="VLR VC Disabled")
+            vc_created.clear()
         
         # Delete the category too
-        await vc_category.delete(reason="VLR VC Disabled")
+        if vc_category is not None:
+            await vc_category.delete(reason="VLR VC Disabled")
+        
+        await ctx.send(f"Match party voice channel creation disabled.")
         
 
     @command_vlr_vc.command(name="force")
@@ -312,16 +325,18 @@ class VLR(commands.Cog):
         Returns the created voice channel object
         """
 
-        vc_created = await self.config.guild(guild).vc_created()
         vc_category_id = await self.config.guild(guild).vc_category()
         vc_category = guild.get_channel(vc_category_id)
 
         # Create VC
         vc_object = await vc_category.create_voice_channel(name)
         # Keep track of which match is which VC
-        vc_created.append([url, vc_object.id])
-        # Update config
-        await self.config.guild(guild).vc_created.set(vc_created)
+        async with self.config.guild(guild).vc_created() as vc_created:
+            # Bug where empty dicts sometimes return as lists?
+            if type(vc_created) is list:
+                vc_created = {url: vc_object.id}
+            else:
+                vc_created[url] = vc_object.id
 
         return vc_object
 
@@ -330,29 +345,18 @@ class VLR(commands.Cog):
 
         vc_default_id = await self.config.guild(guild).vc_default()
         vc_default = guild.get_channel(vc_default_id)
-        vc_created = await self.config.guild(guild).vc_created()
 
-        remaining = []
-        # This isn't efficient but can't serialize sets/dicts
-        for vc in vc_created:
-            if url == vc[0]:
-                # Found the VC for this match
-                this_channel = self.bot.get_channel(vc[1])
+        async with self.config.guild(guild).vc_created() as vc_created:
+            channel_id = vc_created.pop(url, None)
+            if channel_id is not None:
+                channel_obj = self.bot.get_channel(channel_id)
+                
                 # Move everyone to default channel
-                this_members = this_channel.members
-                for m in this_members:
+                for m in channel_obj.members:
                     await m.move_to(vc_default)
-                # Delete this channel
-                await this_channel.delete(reason="Match Ended")
-                # Don't break in case we need to clean up duplicate VCs
-            else:
-                # Keep the unrelated VCs
-                remaining.append(vc)
-        
-        # Update remaining VCs
-        await self.config.guild(guild).vc_created.set(remaining)
-
-
+                
+                await channel_obj.delete(reason="Match Ended")
+            
     #####################
     # Utility Functions #
     #####################
@@ -534,9 +538,6 @@ class VLR(commands.Cog):
 
     async def _notify(self, guild, channel, match_data, reason):
         """ Helper function to send match notification """
-
-        # Get notified cache
-        notified_cache = await self.config.guild(guild).notified()
         
         # We want to scrape the match page to get full player information
         # Get HTML response for upcoming matches
@@ -657,8 +658,8 @@ class VLR(commands.Cog):
         await channel.send(embeds=[embed, embed_aux], allowed_mentions=None)
 
         # Update cache, notification successfully sent
-        notified_cache.append(url)
-        await self.config.guild(guild).notified.set(notified_cache)
+        async with self.config.guild(guild).notified() as notified:
+            notified.append(url)
     
     async def _result(self, guild, channel, result_data):
         """Helper function to send match result"""
@@ -738,15 +739,7 @@ class VLR(commands.Cog):
     @command_vlr.command(name='debug')
     @checks.is_owner()
     async def vlr_debug(self, ctx: commands.Context):
-        channel_id = await self.config.guild(ctx.guild).channel_id()
-        channel_obj = self.bot.get_channel(channel_id)
-
-        await self.config.guild(ctx.guild).notified.set([])
-        matches = await self.config.match_cache()
-        await self._notify(ctx.guild, channel_obj, matches[0], 'debug')
-
-        results = await self.config.result_cache()
-        await self._result(ctx.guild, channel_obj, results[0])
+        pass
 
     ################
     # LIST MATCHES #
