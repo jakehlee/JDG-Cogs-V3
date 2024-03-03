@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 
 import discord
 from discord.ext import tasks
-from redbot.core import Config, checks, commands
+from redbot.core import Config, checks, commands, data_manager
 from redbot.core.utils.predicates import ReactionPredicate
 from redbot.core.utils.menus import start_adding_reactions
 
@@ -54,7 +54,7 @@ class VLR(commands.Cog):
         default_global = {
             'match_cache': [],      # Caches first page of upcoming matches each poll
             'result_cache': [],     # Caches first page of results each poll
-            'notify_cache': [],
+            'notify_cache': {},
             'cache_time': None      # Timestamps last cache update
         }
         self.config.register_global(**default_global)
@@ -333,11 +333,7 @@ class VLR(commands.Cog):
         vc_object = await vc_category.create_voice_channel(name)
         # Keep track of which match is which VC
         async with self.config.guild(guild).vc_created() as vc_created:
-            # Bug where empty dicts sometimes return as lists?
-            if type(vc_created) is list:
-                vc_created = {url: vc_object.id}
-            else:
-                vc_created[url] = vc_object.id
+            vc_created[url] = vc_object.id
 
         return vc_object
 
@@ -348,9 +344,6 @@ class VLR(commands.Cog):
         vc_default = guild.get_channel(vc_default_id)
 
         async with self.config.guild(guild).vc_created() as vc_created:
-            # Empty is list
-            if type(vc_created) is list:
-                return
 
             channel_id = vc_created.pop(url, None)
             if channel_id is not None:
@@ -361,7 +354,7 @@ class VLR(commands.Cog):
                     await m.move_to(vc_default)
                 
                 await channel_obj.delete(reason="Match Ended")
-            
+
     #####################
     # Utility Functions #
     #####################
@@ -626,11 +619,7 @@ class VLR(commands.Cog):
         # We want to scrape the match page to get full player information
         # Get HTML response for upcoming matches
         async with self.config.notify_cache() as notify_cache:
-            if type(notify_cache) is list:
-                print('cache empty')
-                full_data = await self._getmatch(match_data)
-                notify_cache = {match_data['url']: full_data}
-            elif match_data['url'] not in notify_cache:
+            if match_data['url'] not in notify_cache:
                 print('cache missed')
                 full_data = await self._getmatch(match_data)
                 notify_cache[match_data['url']] = full_data
@@ -715,8 +704,7 @@ class VLR(commands.Cog):
         
         # Update notification cache
         async with self.config.notify_cache() as notify_cache:
-            if type(notify_cache) is not list:
-                notify_cache.pop(result_data['url'], None)
+            notify_cache.pop(result_data['url'])
         
         # Delete voice channel if enabled
         vc_enabled = await self.config.guild(guild).vc_enabled()
