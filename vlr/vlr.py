@@ -328,6 +328,10 @@ class VLR(commands.Cog):
 
         vc_category_id = await self.config.guild(guild).vc_category()
         vc_category = guild.get_channel(vc_category_id)
+        if vc_category is None:
+            category = await ctx.guild.create_category("VLR Watch Parties")
+            await self.config.guild(ctx.guild).vc_category.set(category.id)
+            vc_category = guild.get_channel(vc_category_id)
 
         # Create VC
         vc_object = await vc_category.create_voice_channel(name)
@@ -344,16 +348,16 @@ class VLR(commands.Cog):
         vc_default = guild.get_channel(vc_default_id)
 
         async with self.config.guild(guild).vc_created() as vc_created:
-
             channel_id = vc_created.pop(url, None)
             if channel_id is not None:
                 channel_obj = self.bot.get_channel(channel_id)
-                
-                # Move everyone to default channel
-                for m in channel_obj.members:
-                    await m.move_to(vc_default)
-                
-                await channel_obj.delete(reason="Match Ended")
+                if channel_obj is not None:
+                    # Move everyone to default channel
+                    if vc_default is not None:
+                        for m in channel_obj.members:
+                            await m.move_to(vc_default)
+                    
+                    await channel_obj.delete(reason="Match Ended")
 
     #####################
     # Utility Functions #
