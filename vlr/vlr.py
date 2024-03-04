@@ -730,7 +730,6 @@ class VLR(commands.Cog):
         await self._getresults()
         await self._sendnotif()
         await self._clear_notif_cache()
-    
 
     @parse.before_loop
     async def before_parse(self):
@@ -748,13 +747,13 @@ class VLR(commands.Cog):
     @command_vlr.command(name='update')
     @checks.is_owner()  # Because this runs a scrape
     async def vlr_update(self, ctx: commands.Context):
-        """Force update matches from VLR.
-        """
+        """Force update matches from VLR."""
         # Useful if we missed a polling cycle due to VLR server error
         # Notifications can be sent because caching prevents duplicates
         await self._getmatches()
         await self._getresults()
         await self._sendnotif()
+        await self._clear_notif_cache()
         await ctx.send("Updated matches from VLR.")
     
     # @command_vlr.command(name='debug')
@@ -844,7 +843,7 @@ class VLR(commands.Cog):
 
     @command_vlr_matches.command(name="all")
     async def command_vlr_matches_all(self, ctx: commands.Context, n: int = 5):
-        """Get all upcoming matches.
+        """Get all upcoming Valorant esports matches. Defaults to 5, up to 20.
         
         Defaults to 5, but request up to 20.
         Example: [p]vlr matches all 20
@@ -854,10 +853,9 @@ class VLR(commands.Cog):
 
     @command_vlr_matches.command(name="vct")
     async def command_vlr_matches_vct(self, ctx: commands.Context, n: int = 5):
-        """Get upcoming VCT esports matches.
+        """Get upcoming VCT matches. Defaults to 5, up to 20.
         
         Filters for "Champions Tour" in the event string.
-        Defaults to 5, but request up to 20.
         Example: [p]vlr matches vct 20
         """
 
@@ -865,10 +863,9 @@ class VLR(commands.Cog):
 
     @command_vlr_matches.command(name="gc")
     async def command_vlr_matches_gc(self, ctx: commands.Context, n: int = 5):
-        """Get upcoming Game Changers matches.
+        """Get upcoming Game Changers matches. Defaults to 5, up to 20.
         
         Filters for "Game Changers" in the event string.
-        Defaults to 5, but request up to 20.
         Example: [p]vlr matches gc 20
         """
 
@@ -939,9 +936,8 @@ class VLR(commands.Cog):
 
     @command_vlr_results.command(name="all")
     async def command_vlr_results_all(self, ctx: commands.Context, n: int = 5):
-        """Get completed Valorant esports results.
+        """Get all completed Valorant esports results. Defaults to 5, up to 20.
         
-        Defaults to 5, but request up to 20.
         Example: [p] vlr results 20
         """
 
@@ -949,10 +945,9 @@ class VLR(commands.Cog):
 
     @command_vlr_results.command(name="vct")
     async def command_vlr_results_vct(self, ctx: commands.Context, n: int = 5):
-        """Get completed VCT results.
+        """Get completed VCT results. Defaults to 5, up to 20.
         
         Filters for "Champions Tour" in the event string.
-        Defaults to 5, but request up to 20.
         Example: [p]vlr results vct 20
         """
 
@@ -960,10 +955,9 @@ class VLR(commands.Cog):
 
     @command_vlr_results.command(name="gc")
     async def command_vlr_results_gc(self, ctx: commands.Context, n: int = 5):
-        """Get completed Game Changers results.
+        """Get completed Game Changers results. Defaults to 5, up to 20.
         
         Filters for "Game Changers" in the event string.
-        Defaults to 5, but request up to 20.
         Example: [p]vlr results gc 20
         """
 
