@@ -2,6 +2,7 @@ import asyncio
 import re
 from datetime import datetime, timezone
 import time
+from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
@@ -40,6 +41,10 @@ def get_flag_unicode(flag_str):
     
     return flag_unicode
 
+def validate_match_url(url):
+    """ VLR match URLs - match URLs have an integer as the second part of the path (e.g. https://www.vlr.gg/303087/) instead of /event or /team"""
+    return Path(url).parts[2].isdigit()
+
 class VLR(commands.Cog):
     """VLR cog to track valorant esports matches and teams"""
 
@@ -54,7 +59,7 @@ class VLR(commands.Cog):
         default_global = {
             'match_cache': [],      # Caches first page of upcoming matches each poll
             'result_cache': [],     # Caches first page of results each poll
-            'notify_cache': {},
+            'notify_cache': {},     # Caches full match data for notifications
             'cache_time': None      # Timestamps last cache update
         }
         self.config.register_global(**default_global)
@@ -291,16 +296,19 @@ class VLR(commands.Cog):
     @command_vlr_vc.command(name="force")
     @commands.bot_has_guild_permissions(manage_channels=True)
     async def command_vlr_vc_force(self, ctx: commands.Context, url: str):
-        """ Force-create a watch party channel if it wasn't notified
+        """ Force-create a watch-party voice channel with a vlr match url. 
         
         Example: !vlr vc force https://www.vlr.gg/111111/link-to-match-page
         """
+        
+        if not validate_match_url(url):
+            await ctx.send(f"{url} is not a valid VLR match URL")
 
         # Get HTML response
         response = requests.get(url)
         # Handle non-200 response
         if response.status_code != 200:
-            print(f"Error: {url} responded with {response.status_code}")
+            await ctx.send(f"Error: {url} responded with {response.status_code}")
             return
         # Create soup
         soup = BeautifulSoup(response.content, 'html.parser')
@@ -612,13 +620,9 @@ class VLR(commands.Cog):
                     break
             
             for result in results:
-                # For each result, check if we should send a notification
-                eta_min = str_to_min(result['eta'])
-
                 # Send if we sent a pre-match notification about this match
                 if result['url'] in notified_cache:
                     await self._result(guild_obj, channel_obj, result)
-
 
     async def _notify(self, guild, channel, match_data, reason):
         """ Helper function to send match notification """
