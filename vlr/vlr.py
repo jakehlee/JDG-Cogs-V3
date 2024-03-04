@@ -467,6 +467,8 @@ class VLR(commands.Cog):
         await self.config.cache_time.set(datetime.now(timezone.utc).isoformat())
     
     async def _getmatch(self, match_data: dict):
+        """ Helper function to get a single match's information """
+
         response = requests.get(match_data['url'])
         # Handle non-200 response
         if response.status_code != 200:
@@ -543,6 +545,7 @@ class VLR(commands.Cog):
         data['matchup'] = f"{team_A['flag']} {team_A['name']} vs. {team_B['flag']} {team_B['name']}"
         data['matchup_text'] = f"{team_A['name'].replace(' ', '-')}-vs-{team_B['name'].replace(' ', '-')}"
 
+        data['timestamp'] = datetime.now(timezone.utc).isoformat()
         return data
 
     async def _sendnotif(self):
@@ -706,10 +709,6 @@ class VLR(commands.Cog):
         async with self.config.guild(guild).notified() as notified:
             notified.remove(result_data['url'])
         
-        # Update notification cache
-        async with self.config.notify_cache() as notify_cache:
-            notify_cache.pop(result_data['url'])
-        
         # Delete voice channel if enabled
         vc_enabled = await self.config.guild(guild).vc_enabled()
         if vc_enabled:
@@ -726,6 +725,8 @@ class VLR(commands.Cog):
         await self._getmatches()
         await self._getresults()
         await self._sendnotif()
+        await self._clear_notif_cache()
+    
 
     @parse.before_loop
     async def before_parse(self):
@@ -752,20 +753,28 @@ class VLR(commands.Cog):
         await self._sendnotif()
         await ctx.send("Updated matches from VLR.")
     
-    @command_vlr.command(name='debug')
-    @checks.is_owner()
-    async def vlr_debug(self, ctx: commands.Context):
-        channel_id = await self.config.guild(ctx.guild).channel_id()
-        channel_obj = self.bot.get_channel(channel_id)
+    # @command_vlr.command(name='debug')
+    # @checks.is_owner()
+    # async def vlr_debug(self, ctx: commands.Context):
+    #     channel_id = await self.config.guild(ctx.guild).channel_id()
+    #     channel_obj = self.bot.get_channel(channel_id)
 
-        matches = await self.config.match_cache()
-        await self._notify(ctx.guild, channel_obj, matches[0], 'debug')
-        await self._notify(ctx.guild, channel_obj, matches[0], 'debug')
+    #     matches = await self.config.match_cache()
+    #     await self._notify(ctx.guild, channel_obj, matches[0], 'debug')
+    #     await self._notify(ctx.guild, channel_obj, matches[0], 'debug')
 
-    @command_vlr.command(name='clear')
-    @checks.is_owner()
-    async def vlr_clear(self, ctx: commands.Context):
-        await self.config.guild(ctx.guild).clear()
+    # @command_vlr.command(name='clear')
+    # @checks.is_owner()
+    # async def vlr_clear(self, ctx: commands.Context):
+    #     await self.config.guild(ctx.guild).clear()
+
+    async def _clear_notif_cache(self):
+        """ Periodically clear the notification cache to prevent it from growing too large """
+        async with self.config.notify_cache() as notify_cache:
+            # For each item in the notify_cache dictionary, check if the 'timestamp' is older than 24 hours
+            for key in notify_cache.keys():
+                if (datetime.now(timezone.utc) - datetime.fromisoformat(notify_cache[key]['timestamp'])).total_seconds() > 86400:
+                    del notify_cache[key]
 
 
     ################
