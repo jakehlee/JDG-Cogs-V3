@@ -1,13 +1,15 @@
 import asyncio
 import re
 from datetime import datetime, timezone
+import time
+from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
 
 import discord
 from discord.ext import tasks
-from redbot.core import Config, checks, commands
+from redbot.core import Config, checks, commands, data_manager
 from redbot.core.utils.predicates import ReactionPredicate
 from redbot.core.utils.menus import start_adding_reactions
 
@@ -39,6 +41,10 @@ def get_flag_unicode(flag_str):
     
     return flag_unicode
 
+def validate_match_url(url):
+    """ VLR match URLs - match URLs have an integer as the second part of the path (e.g. https://www.vlr.gg/303087/) instead of /event or /team"""
+    return Path(url).parts[2].isdigit()
+
 class VLR(commands.Cog):
     """VLR cog to track valorant esports matches and teams"""
 
@@ -53,6 +59,7 @@ class VLR(commands.Cog):
         default_global = {
             'match_cache': [],      # Caches first page of upcoming matches each poll
             'result_cache': [],     # Caches first page of results each poll
+            'notify_cache': {},     # Caches full match data for notifications
             'cache_time': None      # Timestamps last cache update
         }
         self.config.register_global(**default_global)
@@ -66,7 +73,7 @@ class VLR(commands.Cog):
             "vc_enabled": False,                                # Whether watch party VCs are enabled
             "vc_default": None,                                 # Channel ID where members are sent after a watchparty ends
             "vc_category": None,                                # Internal, keeps track of category channel id
-            "vc_created": []                                    # Lists created VCs so they can be destroyed
+            "vc_created": {}                                    # Lists created VCs so they can be destroyed
         }
         self.config.register_guild(**default_guild)
 
@@ -78,6 +85,7 @@ class VLR(commands.Cog):
     def cog_unload(self):
         # Safe exit of task loop
         self.parse.cancel()
+        self.command_vlr_vc_disable()
 
     @commands.group(name="vlr")
     async def command_vlr(self, ctx: commands.Context):
@@ -230,6 +238,9 @@ class VLR(commands.Cog):
         if default_channel is None:
             await ctx.send(f"Error: Failed to find the default voice channel, please double check the name.")
             return
+        
+        if await self.config.guild(ctx.guild).vc_enabled():
+            return
 
         # Initialize config storage
         await self.config.guild(ctx.guild).vc_enabled.set(True)
@@ -252,40 +263,52 @@ class VLR(commands.Cog):
 
         Example: !vlr vc disable
         """
-        default_id = await self.config.guild(ctx.guild).vc_default()
-        default_channel = self.bot.get_channel(default_id)
-        vc_category_id = await self.config.guild(ctx.guild).vc_category()
-        vc_category = self.bot.get_channel(vc_category_id)
-        vc_created = await self.config.guild(ctx.guild).vc_created()
+        if not await self.config.guild(ctx.guild).vc_enabled():
+            return
+
+        default_channel = self.bot.get_channel(await self.config.guild(ctx.guild).vc_default())
+        vc_category = self.bot.get_channel(await self.config.guild(ctx.guild).vc_category())
         
-        await self.config.guild(ctx.guild).vc_created.set([])
+        await self.config.guild(ctx.guild).vc_enabled.set(False)
 
         # Delete every watch party voice channel after moving everyone to the default channel
-        for vc in vc_created:
-            this_channel = self.bot.get_channel(vc[1])
-            this_members = this_channel.members
-            for m in this_members:
-                await m.move_to(default_channel)
+        async with self.config.guild(ctx.guild).vc_created() as vc_created:
+            for vc in vc_created:
+                this_channel = self.bot.get_channel(vc_created[vc])
+                if this_channel is None:
+                    # Already deleted
+                    continue
+                this_members = this_channel.members
+                for m in this_members:
+                    await m.move_to(default_channel)
+                
+                await this_channel.delete(reason="VLR VC Disabled")
             
-            await this_channel.delete(reason="VLR VC Disabled")
+            vc_created.clear()
         
         # Delete the category too
-        await vc_category.delete(reason="VLR VC Disabled")
+        if vc_category is not None:
+            await vc_category.delete(reason="VLR VC Disabled")
+        
+        await ctx.send(f"Match party voice channel creation disabled.")
         
 
     @command_vlr_vc.command(name="force")
     @commands.bot_has_guild_permissions(manage_channels=True)
     async def command_vlr_vc_force(self, ctx: commands.Context, url: str):
-        """ Force-create a watch party channel if it wasn't notified
+        """ Force-create a watch-party voice channel with a vlr match url. 
         
         Example: !vlr vc force https://www.vlr.gg/111111/link-to-match-page
         """
+        
+        if not validate_match_url(url):
+            await ctx.send(f"{url} is not a valid VLR match URL")
 
         # Get HTML response
         response = requests.get(url)
         # Handle non-200 response
         if response.status_code != 200:
-            print(f"Error: {url} responded with {response.status_code}")
+            await ctx.send(f"Error: {url} responded with {response.status_code}")
             return
         # Create soup
         soup = BeautifulSoup(response.content, 'html.parser')
@@ -311,16 +334,18 @@ class VLR(commands.Cog):
         Returns the created voice channel object
         """
 
-        vc_created = await self.config.guild(guild).vc_created()
         vc_category_id = await self.config.guild(guild).vc_category()
         vc_category = guild.get_channel(vc_category_id)
+        if vc_category is None:
+            category = await ctx.guild.create_category("VLR Watch Parties")
+            await self.config.guild(ctx.guild).vc_category.set(category.id)
+            vc_category = guild.get_channel(vc_category_id)
 
         # Create VC
         vc_object = await vc_category.create_voice_channel(name)
         # Keep track of which match is which VC
-        vc_created.append([url, vc_object.id])
-        # Update config
-        await self.config.guild(guild).vc_created.set(vc_created)
+        async with self.config.guild(guild).vc_created() as vc_created:
+            vc_created[url] = vc_object.id
 
         return vc_object
 
@@ -329,28 +354,18 @@ class VLR(commands.Cog):
 
         vc_default_id = await self.config.guild(guild).vc_default()
         vc_default = guild.get_channel(vc_default_id)
-        vc_created = await self.config.guild(guild).vc_created()
 
-        remaining = []
-        # This isn't efficient but can't serialize sets/dicts
-        for vc in vc_created:
-            if url == vc[0]:
-                # Found the VC for this match
-                this_channel = self.bot.get_channel(vc[1])
-                # Move everyone to default channel
-                this_members = this_channel.members
-                for m in this_members:
-                    await m.move_to(vc_default)
-                # Delete this channel
-                await this_channel.delete(reason="Match Ended")
-                # Don't break in case we need to clean up duplicate VCs
-            else:
-                # Keep the unrelated VCs
-                remaining.append(vc)
-        
-        # Update remaining VCs
-        await self.config.guild(guild).vc_created.set(remaining)
-
+        async with self.config.guild(guild).vc_created() as vc_created:
+            channel_id = vc_created.pop(url, None)
+            if channel_id is not None:
+                channel_obj = self.bot.get_channel(channel_id)
+                if channel_obj is not None:
+                    # Move everyone to default channel
+                    if vc_default is not None:
+                        for m in channel_obj.members:
+                            await m.move_to(vc_default)
+                    
+                    await channel_obj.delete(reason="Match Ended")
 
     #####################
     # Utility Functions #
@@ -389,8 +404,8 @@ class VLR(commands.Cog):
             # Extract participating teams and their flag emojis
             teams = match.find_all(class_='match-item-vs-team')
             teams_info = [{
-                'team_name': team.find(class_='match-item-vs-team-name').get_text(strip=True),
-                'flag_emoji': team.find('span').get('class')[1]
+                'name': team.find(class_='match-item-vs-team-name').get_text(strip=True),
+                'flag': get_flag_unicode(team.find('span').get('class')[1])
             } for team in teams]
             
             # Extract event information
@@ -401,7 +416,7 @@ class VLR(commands.Cog):
                 'url': match_url,
                 'status': live_or_upcoming,
                 'eta': eta,
-                'teams': [[t['team_name'], get_flag_unicode(t['flag_emoji'])] for t in teams_info],
+                'teams': teams_info,
                 'event': event_info
             })
         
@@ -437,10 +452,10 @@ class VLR(commands.Cog):
             # Extract participating teams and their flag emojis
             teams = match.find_all(class_=['match-item-vs-team'])
             teams_info = [{
-                'team_score': int(team.find(class_=['match-item-vs-team-score']).get_text(strip=True)),
-                'team_name': team.find(class_='match-item-vs-team-name').get_text(strip=True),
+                'score': int(team.find(class_=['match-item-vs-team-score']).get_text(strip=True)),
+                'name': team.find(class_='match-item-vs-team-name').get_text(strip=True),
                 'is_winner': 'mod-winner' in team.get('class', []),
-                'flag_emoji': team.find('span').get('class')[1]
+                'flag': get_flag_unicode(team.find('span').get('class')[1])
             } for team in teams]
             
             # Extract event information
@@ -451,13 +466,95 @@ class VLR(commands.Cog):
                 'url': match_url,
                 'status': 'Completed',
                 'eta': eta,
-                'teams': [[t['team_name'], get_flag_unicode(t['flag_emoji']), t['team_score'], t['is_winner']] for t in teams_info],
+                'teams': teams_info,
                 'event': event_info
             })
         
         # Push everything to config
         await self.config.result_cache.set(match_data)
         await self.config.cache_time.set(datetime.now(timezone.utc).isoformat())
+    
+    async def _getmatch(self, match_data: dict):
+        """ Helper function to get a single match's information """
+
+        response = requests.get(match_data['url'])
+        # Handle non-200 response
+        if response.status_code != 200:
+            print(f"Error: {match_data['url']} responded with {response.status_code}")
+            return
+        # Create soup
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        # Team information
+        data = {'event': {}}
+        teamA = {}
+        teamB = {}
+
+        teamA['name'] = soup.find(class_=["match-header-link-name mod-1"]).get_text(strip=True)
+        teamB['name'] = soup.find(class_=["match-header-link-name mod-2"]).get_text(strip=True)
+        teamA['url'] = self.BASE_URL + soup.find('a', class_=["match-header-link wf-link-hover mod-1"])['href']
+        teamB['url'] = self.BASE_URL + soup.find('a', class_=["match-header-link wf-link-hover mod-2"])['href']
+        teamA['logo'] = "https:"+soup.find('a', class_=["match-header-link wf-link-hover mod-1"]).find('img')['src']
+        teamB['logo'] = "https:"+soup.find('a', class_=["match-header-link wf-link-hover mod-2"]).find('img')['src']
+
+        # Event information
+        event_info_div = soup.find(class_="match-header-event")
+        data['event']['info'] = event_info_div.get_text().replace('\t', '').replace('\n', ' ').strip()
+        
+        event_url = event_info_div['href']
+        event_url = self.BASE_URL + event_url if not event_url.startswith('http') else event_url
+        data['event']['url'] = event_url
+
+        # Find match format (e.g., BO1, BO3, BO5)
+        data['event']['datetime'] = soup.find(class_="match-header-date").get_text().replace('\t', '').replace('\n', ' ').strip()
+        data['event']['format'] = soup.find(class_="match-header-vs-note").get_text(strip=True)
+
+        # Find players
+        teamA['players'] = []
+        teamB['players'] = []
+
+        team_tables = soup.find('div', class_="vm-stats-game", attrs={"data-game-id": 'all'})
+        team_tables = team_tables.find_all('tbody')
+
+        # Process each team table
+        for team_index, team_table in enumerate(team_tables):
+            player_rows = team_table.find_all('tr')
+            for row in player_rows:
+                # Extract player name and URL
+                player_name_tag = row.find('a')
+                player_name = player_name_tag.get_text().split()[0]
+                player_url = player_name_tag['href']
+
+                # Make URL absolute if necessary
+                player_url = self.BASE_URL + player_url if not player_url.startswith('http') else player_url
+
+                # Extract flag emoji
+                flag_tag = row.find('i', class_='flag')
+                flag_cls = flag_tag.get('class')[1]
+                
+                player_info = {
+                    'name': player_name,
+                    'flag': get_flag_unicode(flag_cls),
+                    'url': player_url
+                }
+
+                # Append player information to the corresponding team list
+                if team_index == 0:
+                    teamA['players'].append(player_info)
+                else:
+                    teamB['players'].append(player_info)
+
+        data['teamA'] = teamA
+        data['teamB'] = teamB
+
+        # Matchup String
+        team_A = match_data['teams'][0]
+        team_B = match_data['teams'][1]
+        data['matchup'] = f"{team_A['flag']} {team_A['name']} vs. {team_B['flag']} {team_B['name']}"
+        data['matchup_text'] = f"{team_A['name'].replace(' ', '-')}-vs-{team_B['name'].replace(' ', '-')}"
+
+        data['timestamp'] = datetime.now(timezone.utc).isoformat()
+        return data
 
     async def _sendnotif(self):
         """Send out notifications for relevant matches"""
@@ -477,7 +574,7 @@ class VLR(commands.Cog):
             # Exact string match to find subscribed team
             if not subscribed:
                 for st in sub_team:
-                    if st == match['teams'][0][0] or st == match['teams'][1][0]:
+                    if st == match['teams'][0]['name'] or st == match['teams'][1]['name']:
                         subscribed = True
                         reason = f"Team: {st}"
                         break
@@ -523,149 +620,77 @@ class VLR(commands.Cog):
                     break
             
             for result in results:
-                # For each result, check if we should send a notification
-                eta_min = str_to_min(result['eta'])
-
                 # Send if we sent a pre-match notification about this match
                 if result['url'] in notified_cache:
                     await self._result(guild_obj, channel_obj, result)
 
-
     async def _notify(self, guild, channel, match_data, reason):
         """ Helper function to send match notification """
-
-        # Get notified cache
-        notified_cache = await self.config.guild(guild).notified()
         
         # We want to scrape the match page to get full player information
         # Get HTML response for upcoming matches
-        url = match_data["url"]
-        response = requests.get(url)
-        # Handle non-200 response
-        if response.status_code != 200:
-            print(f"Error: {url} responded with {response.status_code}")
-            return
-        # Create soup
-        soup = BeautifulSoup(response.content, 'html.parser')
-
-        # Team information
-        team_names = [
-            soup.find(class_=["match-header-link-name mod-1"]).get_text(strip=True),
-            soup.find(class_=["match-header-link-name mod-2"]).get_text(strip=True)
-        ]
-        team_urls = [
-            self.BASE_URL + soup.find('a', class_=["match-header-link wf-link-hover mod-1"])['href'],
-            self.BASE_URL + soup.find('a', class_=["match-header-link wf-link-hover mod-2"])['href']
-        ]
-        team_logos = [
-            "https:"+soup.find('a', class_=["match-header-link wf-link-hover mod-1"]).find('img')['src'],
-            "https:"+soup.find('a', class_=["match-header-link wf-link-hover mod-2"]).find('img')['src']
-        ]
-
-        # Event information
-        event_info_div = soup.find(class_="match-header-event")
-        event_info = event_info_div.get_text().replace('\t', '').replace('\n', ' ').strip()
-        event_url = event_info_div['href']
-        event_url = self.BASE_URL + event_url if not event_url.startswith('http') else event_url
-
-        # Find match format (e.g., BO1, BO3, BO5)
-        date_time = soup.find(class_="match-header-date").get_text().replace('\t', '').replace('\n', ' ').strip()
-        match_format = soup.find(class_="match-header-vs-note").get_text(strip=True)
-
-        # Find players
-        team1_players = []
-        team2_players = []
-
-        team_tables = soup.find('div', class_="vm-stats-game", attrs={"data-game-id": 'all'})
-        team_tables = team_tables.find_all('tbody')
-
-        # Process each team table
-        for team_index, team_table in enumerate(team_tables):
-            player_rows = team_table.find_all('tr')
-            for row in player_rows:
-                # Extract player name and URL
-                player_name_tag = row.find('a')
-                player_name = player_name_tag.get_text().split()[0]
-                player_url = player_name_tag['href']
-
-                # Make URL absolute if necessary
-                player_url = self.BASE_URL + player_url if not player_url.startswith('http') else player_url
-
-                # Extract flag emoji
-                flag_tag = row.find('i', class_='flag')
-                flag_cls = flag_tag.get('class')[1]
-                
-                player_info = {
-                    'name': player_name,
-                    'flag': get_flag_unicode(flag_cls),
-                    'url': player_url
-                }
-
-                # Append player information to the corresponding team list
-                if team_index == 0:
-                    team1_players.append(player_info)
-                else:
-                    team2_players.append(player_info)
-
-        # Matchup String
-        team_A = match_data['teams'][0]
-        team_B = match_data['teams'][1]
-        matchup = f"{team_A[1]} {team_A[0]} vs. {team_B[1]} {team_B[0]}"
-        matchup_text = f"{'-'.join(team_A[0].split(' '))}-vs-{'-'.join(team_B[0].split(' '))}"
+        async with self.config.notify_cache() as notify_cache:
+            if match_data['url'] not in notify_cache:
+                print('cache missed')
+                full_data = await self._getmatch(match_data)
+                notify_cache[match_data['url']] = full_data
+            else:
+                print('cache hit')
+                full_data = notify_cache[match_data['url']]
 
         # Create voice channel if enabled
-        vc_enabled = await self.config.guild(guild).vc_enabled()
-        if vc_enabled:
-            created_vc = await self._create_vc(guild, url, matchup_text)
+        if await self.config.guild(guild).vc_enabled():
+            created_vc = await self._create_vc(guild, match_data['url'], full_data['matchup_text'])
 
         # Build embed
         embed = discord.Embed(
             title=f"\N{BELL} Upcoming Match in {match_data['eta']}",
-            description=matchup,
+            description=full_data['matchup'],
             color=0xff4654,
-            url=url
+            url=match_data['url']
         )
 
         # Footer to explain why we're sending this notification
         embed.set_footer(text=f"Subscribed to {reason}")
-        embed.add_field(name=event_info, value=f"{match_format} | {date_time}", inline=False)
+        embed.add_field(name=full_data['event']['info'], value=f"{full_data['event']['format']} | {full_data['event']['datetime']}", inline=False)
 
-        # Team 1 information inline
-        team1_name = team_names[0]
-        team1_val = '\n'.join([f"\N{BUSTS IN SILHOUETTE} [Team]({team_urls[0]})"]+[f"{p['flag']} [{p['name']}]({p['url']})" for p in team1_players])
-        embed.add_field(name=team1_name, value=team1_val, inline=True)
+        # Team A information inline
+        teamA_name = full_data['teamA']['name']
+        teamA_val = f"\N{BUSTS IN SILHOUETTE} [Team]({full_data['teamA']['url']})"
+        for p in full_data['teamA']['players']:
+            teamA_val += f"\n{p['flag']} [{p['name']}]({p['url']})"
+        embed.add_field(name=teamA_name, value=teamA_val, inline=True)
 
-        # Team 2 information inline
-        team2_name = team_names[1]
-        team2_val = '\n'.join([f"\N{BUSTS IN SILHOUETTE} [Team]({team_urls[1]})"]+[f"{p['flag']} [{p['name']}]({p['url']})" for p in team2_players])
-        embed.add_field(name=team2_name, value=team2_val, inline=True)
+        # Team B information inline
+        teamB_name = full_data['teamB']['name']
+        teamB_val = f"\N{BUSTS IN SILHOUETTE} [Team]({full_data['teamB']['url']})"
+        for p in full_data['teamB']['players']:
+            teamB_val += f"\n{p['flag']} [{p['name']}]({p['url']})"
+        embed.add_field(name=teamB_name, value=teamB_val, inline=True)
 
         # Tag the voice channel where the watch party is happening if it's enabled
-        if vc_enabled:
+        if await self.config.guild(guild).vc_enabled():
             embed.add_field(name="Watch Party", value=f"<#{created_vc.id}>", inline=False)
 
         # Team logo images
-        embed.set_image(url=team_logos[0])
-        embed_aux = discord.Embed(url=url).set_image(url=team_logos[1])
+        embed.set_image(url=full_data['teamA']['logo'])
+        embed_aux = discord.Embed(url=match_data['url']).set_image(url=full_data['teamB']['logo'])
 
         # Send embed
         await channel.send(embeds=[embed, embed_aux], allowed_mentions=None)
 
         # Update cache, notification successfully sent
-        notified_cache.append(url)
-        await self.config.guild(guild).notified.set(notified_cache)
+        async with self.config.guild(guild).notified() as notified:
+            notified.append(match_data['url'])
     
     async def _result(self, guild, channel, result_data):
         """Helper function to send match result"""
-
-        # Get notified cache
-        notified_cache = await self.config.guild(guild).notified()
 
         # Build embed
         # Matchup string
         team_A = result_data['teams'][0]
         team_B = result_data['teams'][1]
-        matchup = f"{team_A[1]} {team_A[0]} vs. {team_B[1]} {team_B[0]}"
+        matchup = f"{team_A['flag']} {team_A['name']} vs. {team_B['flag']} {team_B['name']}"
 
         # Embed object
         embed = discord.Embed(
@@ -677,7 +702,7 @@ class VLR(commands.Cog):
 
         # Spoilered match result with trophy emoji
         trophy = '\N{TROPHY}'
-        result = f"{trophy if team_A[3] else ''} {team_A[0]} {team_A[2]} : {team_B[2]} {team_B[0]} {trophy if team_B[3] else ''}"
+        result = f"{trophy if team_A['is_winner'] else ''} {team_A['name']} {team_A['score']} : {team_B['score']} {team_B['name']} {trophy if team_B['is_winner'] else ''}"
         embed.add_field(name='Scoreline', value=f"||{result}||", inline=False)
         embed.add_field(name='Event', value=f"*{result_data['event']}*", inline=False)
 
@@ -685,8 +710,8 @@ class VLR(commands.Cog):
         await channel.send(embed=embed, allowed_mentions=None)
 
         # Update cache, result successfully sent
-        notified_cache.remove(result_data['url'])
-        await self.config.guild(guild).notified.set(notified_cache)
+        async with self.config.guild(guild).notified() as notified:
+            notified.remove(result_data['url'])
         
         # Delete voice channel if enabled
         vc_enabled = await self.config.guild(guild).vc_enabled()
@@ -704,31 +729,56 @@ class VLR(commands.Cog):
         await self._getmatches()
         await self._getresults()
         await self._sendnotif()
+        await self._clear_notif_cache()
 
     @parse.before_loop
     async def before_parse(self):
         # Don't start parsing until the bot is ready
         await self.bot.wait_until_ready()
 
-    # Disabled because this would be a global command but could be useful for debugging
-    # @commands.command()
-    # async def vlrinterval(self, ctx: commands.Context, seconds: int = 300):
-    #     """Set how often to retrieve matches from vlr in seconds. Defaults to 300."""
-    #     self.POLLING_RATE = seconds
-    #     self.parse.change_interval(seconds=seconds)
-    #     await ctx.send(f"Interval changed to {seconds} sec.")
+    @command_vlr.command(name='interval')
+    @checks.is_owner()  # Because this is a global parameter
+    async def vlr_interval(self, ctx: commands.Context, seconds: int = 300):
+        """Set how often to retrieve matches from vlr in seconds. Defaults to 300."""
+        self.POLLING_RATE = seconds
+        self.parse.change_interval(seconds=seconds)
+        await ctx.send(f"Interval changed to {seconds} sec.")
 
     @command_vlr.command(name='update')
-    @checks.mod_or_permissions(administrator=True)
+    @checks.is_owner()  # Because this runs a scrape
     async def vlr_update(self, ctx: commands.Context):
-        """Force update matches from VLR.
-        """
+        """Force update matches from VLR."""
         # Useful if we missed a polling cycle due to VLR server error
         # Notifications can be sent because caching prevents duplicates
         await self._getmatches()
         await self._getresults()
         await self._sendnotif()
+        await self._clear_notif_cache()
         await ctx.send("Updated matches from VLR.")
+    
+    # @command_vlr.command(name='debug')
+    # @checks.is_owner()
+    # async def vlr_debug(self, ctx: commands.Context):
+    #     channel_id = await self.config.guild(ctx.guild).channel_id()
+    #     channel_obj = self.bot.get_channel(channel_id)
+
+    #     matches = await self.config.match_cache()
+    #     await self._notify(ctx.guild, channel_obj, matches[0], 'debug')
+    #     await self._notify(ctx.guild, channel_obj, matches[0], 'debug')
+
+    # @command_vlr.command(name='clear')
+    # @checks.is_owner()
+    # async def vlr_clear(self, ctx: commands.Context):
+    #     await self.config.guild(ctx.guild).clear()
+
+    async def _clear_notif_cache(self):
+        """ Periodically clear the notification cache to prevent it from growing too large """
+        async with self.config.notify_cache() as notify_cache:
+            # For each item in the notify_cache dictionary, check if the 'timestamp' is older than 24 hours
+            for key in notify_cache.keys():
+                if (datetime.now(timezone.utc) - datetime.fromisoformat(notify_cache[key]['timestamp'])).total_seconds() > 86400:
+                    del notify_cache[key]
+
 
     ################
     # LIST MATCHES #
@@ -777,7 +827,7 @@ class VLR(commands.Cog):
                 embed_name = f"{match['status']} {match['eta']}"
             team_A = match['teams'][0]
             team_B = match['teams'][1]
-            matchup = f"{team_A[1]} {team_A[0]} vs. {team_B[1]} {team_B[0]}"
+            matchup = f"{team_A['flag']} {team_A['name']} vs. {team_B['flag']} {team_B['name']}"
             event = match['event']
 
             embed_value = f"[{matchup}]({match['url']})\n*{event}*"
@@ -793,7 +843,7 @@ class VLR(commands.Cog):
 
     @command_vlr_matches.command(name="all")
     async def command_vlr_matches_all(self, ctx: commands.Context, n: int = 5):
-        """Get all upcoming matches.
+        """Get all upcoming Valorant esports matches. Defaults to 5, up to 20.
         
         Defaults to 5, but request up to 20.
         Example: [p]vlr matches all 20
@@ -803,10 +853,9 @@ class VLR(commands.Cog):
 
     @command_vlr_matches.command(name="vct")
     async def command_vlr_matches_vct(self, ctx: commands.Context, n: int = 5):
-        """Get upcoming VCT esports matches.
+        """Get upcoming VCT matches. Defaults to 5, up to 20.
         
         Filters for "Champions Tour" in the event string.
-        Defaults to 5, but request up to 20.
         Example: [p]vlr matches vct 20
         """
 
@@ -814,10 +863,9 @@ class VLR(commands.Cog):
 
     @command_vlr_matches.command(name="gc")
     async def command_vlr_matches_gc(self, ctx: commands.Context, n: int = 5):
-        """Get upcoming Game Changers matches.
+        """Get upcoming Game Changers matches. Defaults to 5, up to 20.
         
         Filters for "Game Changers" in the event string.
-        Defaults to 5, but request up to 20.
         Example: [p]vlr matches gc 20
         """
 
@@ -866,9 +914,11 @@ class VLR(commands.Cog):
         for result_data in results[:n]:
             embed_name = f"Started {result_data['eta']} ago"
 
-            matchup = f"{result_data['teams'][0][1]} {result_data['teams'][0][0]} vs. {result_data['teams'][1][1]} {result_data['teams'][1][0]}"
+            team_A = result_data['teams'][0]
+            team_B = result_data['teams'][1]
+            matchup = f"{team_A['flag']} {team_A['name']} vs. {team_B['flag']} {team_B['name']}"
             trophy = '\N{TROPHY}'
-            result = f"{trophy if result_data['teams'][0][3] else ''} {result_data['teams'][0][2]} : {result_data['teams'][1][2]} {trophy if result_data['teams'][1][3] else ''}"
+            result = f"{trophy if team_A['is_winner'] else ''} {team_A['score']} : {team_B['score']} {trophy if team_B['is_winner'] else ''}"
 
             event = result_data['event']
 
@@ -886,9 +936,8 @@ class VLR(commands.Cog):
 
     @command_vlr_results.command(name="all")
     async def command_vlr_results_all(self, ctx: commands.Context, n: int = 5):
-        """Get completed Valorant esports results.
+        """Get all completed Valorant esports results. Defaults to 5, up to 20.
         
-        Defaults to 5, but request up to 20.
         Example: [p] vlr results 20
         """
 
@@ -896,10 +945,9 @@ class VLR(commands.Cog):
 
     @command_vlr_results.command(name="vct")
     async def command_vlr_results_vct(self, ctx: commands.Context, n: int = 5):
-        """Get completed VCT results.
+        """Get completed VCT results. Defaults to 5, up to 20.
         
         Filters for "Champions Tour" in the event string.
-        Defaults to 5, but request up to 20.
         Example: [p]vlr results vct 20
         """
 
@@ -907,10 +955,9 @@ class VLR(commands.Cog):
 
     @command_vlr_results.command(name="gc")
     async def command_vlr_results_gc(self, ctx: commands.Context, n: int = 5):
-        """Get completed Game Changers results.
+        """Get completed Game Changers results. Defaults to 5, up to 20.
         
         Filters for "Game Changers" in the event string.
-        Defaults to 5, but request up to 20.
         Example: [p]vlr results gc 20
         """
 
