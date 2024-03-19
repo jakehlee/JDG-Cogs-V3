@@ -29,7 +29,7 @@ class Wordle(commands.Cog):
         self.config.register_member(**default_member)
 
         # Wordle verification regex
-        self.w = re.compile(r"Wordle (\d{3,}) (\d{1})\/6")
+        self.w = re.compile(r"Wordle (\d{1,3},?\d{3}) (\d{1})\/6")
 
     def _parse_message(self, message):
         """Parse message string and check if it's a valid wordle result"""
