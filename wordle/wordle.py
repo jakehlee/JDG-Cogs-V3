@@ -52,7 +52,7 @@ class Wordle(commands.Cog):
         # Parse first line 
         match = self.w.match(lines[0])
         if match is not None:
-            gameid = int(match.groups()[0])
+            gameid = int(match.groups()[0].replace(",", ""))
             attempts = int(match.groups()[1])
 
             # Early exit if attempts don't make sense
