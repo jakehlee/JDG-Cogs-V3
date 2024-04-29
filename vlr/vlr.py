@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import time
 from pathlib import Path
 
+from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
 
@@ -44,6 +45,14 @@ def get_flag_unicode(flag_str):
 def validate_match_url(url):
     """ VLR match URLs - match URLs have an integer as the second part of the path (e.g. https://www.vlr.gg/303087/) instead of /event or /team"""
     return Path(url).parts[2].isdigit()
+
+def validate_url(url):
+    """ Check if the URL is valid and well-formed."""
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except Exception:
+        return False
 
 class VLR(commands.Cog):
     """VLR cog to track valorant esports matches and teams"""
@@ -673,8 +682,18 @@ class VLR(commands.Cog):
             embed.add_field(name="Watch Party", value=f"<#{created_vc.id}>", inline=False)
 
         # Team logo images
-        embed.set_image(url=full_data['teamA']['logo'])
-        embed_aux = discord.Embed(url=match_data['url']).set_image(url=full_data['teamB']['logo'])
+
+        if validate_url(full_data['teamA']['logo']) is False:
+            teamA_logo = "https://www.vlr.gg/img/vlr/logo_header.png"
+        else:
+            teamA_logo = full_data['teamA']['logo']
+        embed.set_image(url=teamA_logo)
+
+        if validate_url(full_data['teamB']['logo']) is False:
+            teamB_logo = "https://www.vlr.gg/img/vlr/logo_header.png"
+        else:
+            teamB_logo = full_data['teamB']['logo']
+        embed_aux = discord.Embed(url=match_data['url']).set_image(url=teamB_logo)
 
         # Send embed
         await channel.send(embeds=[embed, embed_aux], allowed_mentions=None)
@@ -775,10 +794,13 @@ class VLR(commands.Cog):
         """ Periodically clear the notification cache to prevent it from growing too large """
         async with self.config.notify_cache() as notify_cache:
             # For each item in the notify_cache dictionary, check if the 'timestamp' is older than 24 hours
+            to_del = []
             for key in notify_cache.keys():
                 if (datetime.now(timezone.utc) - datetime.fromisoformat(notify_cache[key]['timestamp'])).total_seconds() > 86400:
-                    del notify_cache[key]
+                    to_del.append(key)
 
+            for key in to_del:
+                del notify_cache[key]
 
     ################
     # LIST MATCHES #
