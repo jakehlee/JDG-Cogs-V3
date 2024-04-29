@@ -88,7 +88,11 @@ class VLR(commands.Cog):
         self.parse.cancel()
         self.command_vlr_vc_disable()
 
-    @app_commands.command(name="notif_channel", description="Set notification channel")
+    vlr = app_commands.Group(name='vlr', description="Commands for Valorie", extras={'red_force_enable': True})
+
+    vlr_config = app_commands.Group(name='config', description="Valorie configuration commands", extras={'red_force_enable': True}, parent=vlr)
+
+    @vlr_config.command(name="notif_channel", description="Set notification channel", extras={'red_force_enable': True})
     @app_commands.describe(channel="Text channel for match notifications")
     @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
@@ -105,7 +109,7 @@ class VLR(commands.Cog):
             await self.config.guild(interaction.guild).channel_id.set(None)
             await interaction.response.send_message(f"VLR channel has been cleared", ephemeral=True)
 
-    @app_commands.command(name="notif_time", description="Set notification time")
+    @vlr_config.command(name="notif_time", description="Set notification time", extras={'red_force_enable': True})
     @app_commands.describe(minutes="How early match notifications will be sent in minutes")
     @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
@@ -122,8 +126,8 @@ class VLR(commands.Cog):
     # NOTIFICATION SUBSCRIPTIONS #
     ##############################
 
-    sub = app_commands.Group(name="sub", description='Commands to subscribe to notifications')
-    unsub = app_commands.Group(name="unsub", description='Commands to unsubscribe from notifications')
+    sub = app_commands.Group(name="sub", description='Commands to subscribe to notifications', extras={'red_force_enable': True}, parent=vlr)
+    unsub = app_commands.Group(name="unsub", description='Commands to unsubscribe from notifications', extras={'red_force_enable': True}, parent=vlr)
 
     event_choices = [
         app_commands.Choice(name="All", value="ALL"),
@@ -136,7 +140,7 @@ class VLR(commands.Cog):
         app_commands.Choice(name="Game Changers", value="Game Changers")
     ]
 
-    @sub.command(name="event", description="Subscribe to notifications for an event")
+    @sub.command(name="event", description="Subscribe to notifications for an event", extras={'red_force_enable': True})
     @app_commands.describe(event="The event to receive notifications for")
     @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
@@ -153,7 +157,7 @@ class VLR(commands.Cog):
                 sub_event.append(event)
                 await interaction.response.send_message(f"Subscribed to {event}", ephemeral=True)
     
-    @unsub.command(name="event", description="Unsubscribe from notifications for an event")
+    @unsub.command(name="event", description="Unsubscribe from notifications for an event", extras={'red_force_enable': True})
     @app_commands.describe(event="The event to stop receiving notifications for")
     @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
@@ -167,7 +171,7 @@ class VLR(commands.Cog):
             else:
                 await interaction.response.send_message(f"Not subscribed to this event.", ephemeral=True)
 
-    @sub.command(name="team", description="Subscribe to notifications for a team")
+    @sub.command(name="team", description="Subscribe to notifications for a team", extras={'red_force_enable': True})
     @app_commands.describe(team="The team name to receive notifications for")
     @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
@@ -186,7 +190,7 @@ class VLR(commands.Cog):
                 sub_team.append(team)
                 await interaction.response.send_message(f"Subscribed to {team}", ephemeral=True)
 
-    @unsub.command(name="team", description="Unsubscribe from notifications for a team")
+    @unsub.command(name="team", description="Unsubscribe from notifications for a team", extras={'red_force_enable': True})
     @app_commands.describe(team="The team name to stop receive notifications for")
     @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
@@ -199,7 +203,7 @@ class VLR(commands.Cog):
             else:
                 await interaction.response.send_message(f"Not subscribed to this team.", ephemeral=True)
 
-    @sub.command(name="list", description="List the current event and team subscriptions")
+    @sub.command(name="list", description="List the current event and team subscriptions", extras={'red_force_enable': True})
     @app_commands.guild_only()
     async def sub_list(self, interaction: discord.Interaction):
         """List the events and teams with subscriptions"""
@@ -213,9 +217,9 @@ class VLR(commands.Cog):
     # Voice Channel #
     #################
 
-    vc = app_commands.Group(name="vc", description="Voice channel related commands")
+    vc = app_commands.Group(name="vc", description="Voice channel related commands", extras={'red_force_enable': True}, parent=vlr)
 
-    @vc.command(name="enable", description="Enable watch party voice channels")
+    @vc.command(name="enable", description="Enable watch party voice channels", extras={'red_force_enable': True})
     @app_commands.describe(default_channel="After the watch party ends, everyone will be moved to this channel")
     @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
@@ -239,7 +243,7 @@ class VLR(commands.Cog):
 
         await interaction.response.send_message(f"Match party voice channels enabled with default channel <#{default_channel.id}>", ephemeral=True)
 
-    @vc.command(name="disable", description="Disable watch party voice channels")
+    @vc.command(name="disable", description="Disable watch party voice channels", extras={'red_force_enable': True})
     @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.checks.bot_has_permissions(move_members=True, manage_channels=True)
@@ -821,13 +825,14 @@ class VLR(commands.Cog):
             embed.add_field(name=embed_name, value=embed_value, inline=False)
 
         # Send embed
-        await interaction.respond.send_message(embed=embed, allowed_mentions=None)
+        await interaction.response.send_message(embed=embed, allowed_mentions=None)
 
-    @app_commands.command(name="matches", description="List upcoming matches")
-    @app_commands.describe(category="Category of matches to include", n="Number of matches to list, up to 20")
-    async def matches(self, interaction: discord.Interaction, category: Literal["All", "VCT", "Game Changers"], n: int):
+    @vlr.command(name="matches", description="List upcoming matches", extras={'red_force_enable': True})
+    @app_commands.describe(category="Category of matches to include")
+    async def matches(self, interaction: discord.Interaction,
+                            category: Literal["All", "VCT", "Game Changers"]):
         """Get upcoming Valorant esports matches."""
-        await self._matchlist(interaction, n, cond=category)
+        await self._matchlist(interaction, 5, cond=category)
 
     
     ################
@@ -890,8 +895,9 @@ class VLR(commands.Cog):
         await interaction.response.send_message(embed=embed, allowed_mentions=None)
 
 
-    @app_commands.command(name="results", description="List match results")
-    @app_commands.describe(category="Category of results to include", n="Number of results to list, up to 20")
-    async def results(self, interaction: discord.Interaction, category: Literal["All", "VCT", "Game Changers"], n: int):
+    @vlr.command(name="results", description="List match results", extras={'red_force_enable': True})
+    @app_commands.describe(category="Category of results to include")
+    async def results(self, interaction: discord.Interaction,
+                            category: Literal["All", "VCT", "Game Changers"]):
         """Get completed Valorant esports results."""
-        await self._matchlist(interaction, n, cond=category)
+        await self._resultlist(interaction, 5, cond=category)
