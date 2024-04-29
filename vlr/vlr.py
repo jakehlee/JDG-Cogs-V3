@@ -4,12 +4,13 @@ from datetime import datetime, timezone
 import time
 from pathlib import Path
 
+from typing import Literal
 import requests
 from bs4 import BeautifulSoup
 
 import discord
 from discord.ext import tasks
-from redbot.core import Config, checks, commands, data_manager
+from redbot.core import Config, checks, commands, app_commands
 from redbot.core.utils.predicates import ReactionPredicate
 from redbot.core.utils.menus import start_adding_reactions
 
@@ -53,7 +54,7 @@ class VLR(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=611188252769002, force_registration=True)
 
-        self.POLLING_RATE = 300 # global polling rate in seconds
+        self.POLLING_RATE = 60 # global polling rate in seconds
         self.BASE_URL = "https://www.vlr.gg"
 
         default_global = {
@@ -66,7 +67,7 @@ class VLR(commands.Cog):
 
         default_guild = {
             'channel_id': None,                                 # ID of channel where notification embeds are sent
-            'sub_event': ['Game Changers', 'Champions Tour'],   # Subscribed events, defaults to GC and VCT
+            'sub_event': ['Champions Tour'],                    # Subscribed events, defaults to GC and VCT
             'sub_team': [],                                     # Subscribed teams, no defaults
             "notified": [],                                     # Match URLs that were notified and results should be sent
             "notify_lead": 15,                                  # How many minutes before the match a notif should be sent
@@ -87,192 +88,176 @@ class VLR(commands.Cog):
         self.parse.cancel()
         self.command_vlr_vc_disable()
 
-    @commands.group(name="vlr")
-    async def command_vlr(self, ctx: commands.Context):
-        """Commands to get VLR notifications and see upcoming/completed matches."""
-
-    @command_vlr.command(name="channel")
-    @checks.mod_or_permissions(administrator=True)
-    async def command_vlr_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
+    @app_commands.command(name="notif_channel", description="Set notification channel")
+    @app_commands.describe(channel="Text channel for match notifications")
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(administrator=True)
+    async def notif_channel(self, interaction: discord.Interaction, channel: discord.abc.GuildChannel):
         """Set VLR channel for match notifications.
         
         Example: [p]vlr channel #valorant
         """
 
         if channel is not None:
-            await self.config.guild(ctx.guild).channel_id.set(channel.id)
-            await ctx.send(f"VLR channel has been set to {channel.mention}")
+            await self.config.guild(interaction.guild).channel_id.set(channel.id)
+            await interaction.response.send_message(f"VLR channel has been set to {channel.mention}", ephemeral=True)
         else:
-            await self.config.guild(ctx.guild).channel_id.set(None)
-            await ctx.send("VLR channel has been cleared")
-    
-    @command_vlr.command(name="leadtime")
-    @checks.mod_or_permissions(administrator=True)
-    async def command_vlr_leadtime(self, ctx: commands.Context, minutes: int):
+            await self.config.guild(interaction.guild).channel_id.set(None)
+            await interaction.response.send_message(f"VLR channel has been cleared", ephemeral=True)
+
+    @app_commands.command(name="notif_time", description="Set notification time")
+    @app_commands.describe(minutes="How early match notifications will be sent in minutes")
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(administrator=True)
+    async def notif_time(self, interaction: discord.Interaction, minutes: int):
         """Set lead time for match notifications in minutes.
 
         Example: [p]vlr leadtime 15
         """
 
-        await self.config.guild(ctx.guild).notify_lead.set(minutes)
-        ctx.send(f"Match notifications will be sent {minutes} mins before.")
+        await self.config.guild(interaction.guild).notify_lead.set(minutes)
+        await interaction.response.send_message(f"Match notifications will be sent {minutes} mins before.", ephemeral=True)
 
     ##############################
     # NOTIFICATION SUBSCRIPTIONS #
     ##############################
 
-    @command_vlr.group(name="sub")
-    async def command_vlr_sub(self, ctx: commands.Context):
-        """Subscribe to vlr event and team notifications."""
+    sub = app_commands.Group(name="sub", description='Commands to subscribe to notifications')
+    unsub = app_commands.Group(name="unsub", description='Commands to unsubscribe from notifications')
 
-        # Messy, but prints every time this group is called for easy copy-paste and subscription awareness
-        sub_event = await self.config.guild(ctx.guild).sub_event()
-        sub_team = await self.config.guild(ctx.guild).sub_team()
-        await ctx.send(f"Current subscriptions:\nEvent subs: {sub_event}\nTeam subs: {sub_team}")
+    event_choices = [
+        app_commands.Choice(name="All", value="ALL"),
+        app_commands.Choice(name="VCT All", value="Champions Tour"),
+        app_commands.Choice(name="VCT Masters", value="Champions Tour Masters"),
+        app_commands.Choice(name="VCT Americas", value="Champions Tour Americas"),
+        app_commands.Choice(name="VCT EMEA", value="Champions Tour EMEA"),
+        app_commands.Choice(name="VCT Pacific", value="Champions Tour Pacific"),
+        app_commands.Choice(name="VCT China", value="Champions Tour China"),
+        app_commands.Choice(name="Game Changers", value="Game Changers")
+    ]
 
-    @command_vlr_sub.command("event")
-    @checks.mod_or_permissions(administrator=True)
-    async def command_vlr_sub_event(self, ctx: commands.Context, event: str):
-        """Subscribe or Unsubscribe from an event.
+    @sub.command(name="event", description="Subscribe to notifications for an event")
+    @app_commands.describe(event="The event to receive notifications for")
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.choices(event=event_choices)
+    async def sub_event(self, interaction: discord.Interaction, event: str):
+        """Subscribe to an event."""
 
-        Notifications will be sent if this substring exists in the event string.
-        If there is a space in the event name, wrap it in quotes.
-        Example: [p]vlr sub event "Game Changers"
-        """
-
-        sub_event = await self.config.guild(ctx.guild).sub_event()
-
-        if event in sub_event:
-            # Already subscribed, ask if they want to unsubscribe
-            msg = await ctx.send(f"Already subscribed to event \"{event}\", unsubscribe?")
-            start_adding_reactions(msg, ReactionPredicate.YES_OR_NO_EMOJIS)
-            pred = ReactionPredicate.yes_or_no(msg, ctx.author)
-            await ctx.bot.wait_for("reaction_add", check=pred)
-            if pred.result is True:
-                # Unsubscribe
-                sub_event.remove(event)
-                await self.config.guild(ctx.guild).sub_event.set(sub_event)
-                await ctx.send(f"Unsubscribed from event. Remaining: {sub_event}")
+        async with self.config.guild(interaction.guild).sub_event() as sub_event:
+            if event in sub_event:
+                # Already subscribed
+                await interaction.response.send_message(f"Already subscribed to this event.", ephemeral=True)
             else:
-                # No change
-                await ctx.send(f"Event subscriptions unchanged: {sub_event}")
-        else:
-            # Not already subscribed, ask if they want to subscribe
-            msg = await ctx.send(f"Subscribe to event \"{event}\"?")
-            start_adding_reactions(msg, ReactionPredicate.YES_OR_NO_EMOJIS)
-            pred = ReactionPredicate.yes_or_no(msg, ctx.author)
-            await ctx.bot.wait_for("reaction_add", check=pred)
-            if pred.result is True:
-                # Subscribe
+            # Add subscription
                 sub_event.append(event)
-                await self.config.guild(ctx.guild).sub_event.set(sub_event)
-                await ctx.send(f"Event subscription added: {sub_event}")
+                await interaction.response.send_message(f"Subscribed to {event}", ephemeral=True)
+    
+    @unsub.command(name="event", description="Unsubscribe from notifications for an event")
+    @app_commands.describe(event="The event to stop receiving notifications for")
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.choices(event=event_choices)
+    async def unsub_event(self, interaction: discord.Interaction, event: str):
+        """Unsubscribe from an event."""
+        async with self.config.guild(interaction.guild).sub_event() as sub_event:
+            if event in sub_event:
+                sub_event.remove(event)
+                await interaction.response.send_message(f"Unsubscribed from {event}", ephemeral=True)
             else:
-                # No change
-                await ctx.send(f"Event subscriptions unchanged: {sub_event}")
+                await interaction.response.send_message(f"Not subscribed to this event.", ephemeral=True)
 
-    @command_vlr_sub.command("team")
-    @checks.mod_or_permissions(administrator=True)
-    async def command_vlr_sub_team(self, ctx: commands.Context, team: str):
-        """Subscribe or Unsubscribe from a team.
+    @sub.command(name="team", description="Subscribe to notifications for a team")
+    @app_commands.describe(team="The team name to receive notifications for")
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(administrator=True)
+    async def sub_team(self, interaction: discord.Interaction, team: str):
+        """Subscribe to a team.
 
-        Notifications will be sent if a team name matches this string exactly.
-        If there is a space in the team name, wrap it in quotes. If the team name has special characters, it must be included.
-        Example: [p]vlr sub event "Sentinels"
+        We do our best to match the string given here to the team
+        For example, everything is set to lowercase before comparison
+        and we do a 'in' check instead of a == so that "NRG" still matches "NRG Esports"
         """
 
-        sub_team = await self.config.guild(ctx.guild).sub_team()
-
-        if team in sub_team:
-            # Already subscribed, ask if they want to unsubscribe
-            msg = await ctx.send(f"Already subscribed to team \"{team}\", unsubscribe?")
-            start_adding_reactions(msg, ReactionPredicate.YES_OR_NO_EMOJIS)
-            pred = ReactionPredicate.yes_or_no(msg, ctx.author)
-            await ctx.bot.wait_for("reaction_add", check=pred)
-            if pred.result is True:
-                # Unsubscribe
-                sub_team.remove(team)
-                self.config.guild(ctx.guild).sub_team.set(sub_event)
-                await ctx.send(f"Unsubscribed from team. Remaining: {sub_team}")
+        async with self.config.guild(interaction.guild).sub_team() as sub_team:
+            if team in sub_team:
+                await interaction.response.send_message(f"Already subscribed to this team.", ephemeral=True)
             else:
-                # No change
-                await ctx.send(f"Team subscriptions unchanged: {sub_team}")
-        else:
-            # Not already subscribed, ask if they want to subscribe
-            msg = await ctx.send(f"Subscribe to team \"{event}\"?")
-            start_adding_reactions(msg, ReactionPredicate.YES_OR_NO_EMOJIS)
-            pred = ReactionPredicate.yes_or_no(msg, ctx.author)
-            await ctx.bot.wait_for("reaction_add", check=pred)
-            if pred.result is True:
-                # Subscribe
                 sub_team.append(team)
-                self.config.guild(ctx.guild).sub_team.set(sub_team)
-                await ctx.send(f"Team subscription added: {sub_team}")
+                await interaction.response.send_message(f"Subscribed to {team}", ephemeral=True)
+
+    @unsub.command(name="team", description="Unsubscribe from notifications for a team")
+    @app_commands.describe(team="The team name to stop receive notifications for")
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(administrator=True)
+    async def unsub_team(self, interaction: discord.Interaction, team: str):
+        """Unsubscribe from a team."""
+        async with self.config.guild(interaction.guild).sub_team() as sub_team:
+            if team in sub_team:
+                sub_team.remove(team)
+                await interaction.response.send_message(f"Unsubscribed from {team}", ephemeral=True)
             else:
-                # No change
-                await ctx.send(f"Team subscriptions unchanged: {sub_team}")
-    
+                await interaction.response.send_message(f"Not subscribed to this team.", ephemeral=True)
+
+    @sub.command(name="list", description="List the current event and team subscriptions")
+    @app_commands.guild_only()
+    async def sub_list(self, interaction: discord.Interaction):
+        """List the events and teams with subscriptions"""
+        sub_team = await self.config.guild(interaction.guild).sub_team()
+        sub_event = await self.config.guild(interaction.guild).sub_event()
+
+        await interaction.response.send_message(f"Subscriptions:\nTeams: {sub_team}\nEvents: {sub_event}")
+
+
     #################
     # Voice Channel #
     #################
 
-    @command_vlr.group(name="vc")
-    async def command_vlr_vc(self, ctx: commands.Context):
-        """Enable or disable watch party voice channel creation."""
+    vc = app_commands.Group(name="vc", description="Voice channel related commands")
 
-        vc_enabled = await self.config.guild(ctx.guild).vc_enabled()
-        await ctx.send(f"Watch party voice channel creation is currently {'enabled' if vc_enabled else 'disabled'}")
-
-    @command_vlr_vc.command(name="enable")
-    @commands.bot_has_guild_permissions(move_members=True, manage_channels=True)
-    @checks.mod_or_permissions(administrator=True)
-    async def command_vlr_vc_enable(self, ctx: commands.Context, default: str = None):
+    @vc.command(name="enable", description="Enable watch party voice channels")
+    @app_commands.describe(default_channel="After the watch party ends, everyone will be moved to this channel")
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.checks.bot_has_permissions(move_members=True, manage_channels=True)
+    async def vc_enable(self, interaction: discord.Interaction, default_channel: discord.VoiceChannel):
         """ Enable auto-created watch party voice channels.
         After the match ends, all members will be moved to the default voice channel.
-        The default voice channel name should be its exact name.
-        
-        Example: !vlr vc enable "General Chat"
         """
-        # Users can't easily tag a voice channel from Discord so we have to take a string and look for it
-        default_channel = discord.utils.get(ctx.guild.channels, name=default)
-        if default_channel is None:
-            await ctx.send(f"Error: Failed to find the default voice channel, please double check the name.")
-            return
-        
-        if await self.config.guild(ctx.guild).vc_enabled():
+
+        if await self.config.guild(interaction.guild).vc_enabled():
+            await interaction.response.send_message(f"Watch party voice channels already enabled", ephemeral=True)
             return
 
         # Initialize config storage
-        await self.config.guild(ctx.guild).vc_enabled.set(True)
-        await self.config.guild(ctx.guild).vc_default.set(default_channel.id)
+        await self.config.guild(interaction.guild).vc_enabled.set(True)
+        await self.config.guild(interaction.guild).vc_default.set(default_channel.id)
         
         # Create watch party category for VCs
-        category = await ctx.guild.create_category("VLR Watch Parties")
-        await self.config.guild(ctx.guild).vc_category.set(category.id)
+        category = await interaction.guild.create_category("VLR Watch Parties")
+        await self.config.guild(interaction.guild).vc_category.set(category.id)
 
-        await ctx.send(f"Match party voice channel creation enabled with default channel <#{default_channel.id}>")
-        await ctx.send(f"Please ensure bot has a role with 'Move Members' and 'Manage Channels' permissions.")
+        await interaction.response.send_message(f"Match party voice channels enabled with default channel <#{default_channel.id}>", ephemeral=True)
 
-
-    @command_vlr_vc.command(name="disable")
-    @commands.bot_has_guild_permissions(move_members=True, manage_channels=True)
-    @checks.mod_or_permissions(administrator=True)
-    async def command_vlr_vc_disable(self, ctx: commands.Context):
+    @vc.command(name="disable", description="Disable watch party voice channels")
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.checks.bot_has_permissions(move_members=True, manage_channels=True)
+    async def vc_disable(self, interaction: discord.Interaction):
         """ Disable auto-created watch party voice channels.
         All currently-created voice channels will be removed.
-
-        Example: !vlr vc disable
         """
-        if not await self.config.guild(ctx.guild).vc_enabled():
+        if not await self.config.guild(interaction.guild).vc_enabled():
+            await interaction.response.send_message(f"Watch party voice channels not enabled", ephemeral=True)
             return
 
-        default_channel = self.bot.get_channel(await self.config.guild(ctx.guild).vc_default())
-        vc_category = self.bot.get_channel(await self.config.guild(ctx.guild).vc_category())
+        default_channel = self.bot.get_channel(await self.config.guild(interaction.guild).vc_default())
+        vc_category = self.bot.get_channel(await self.config.guild(interaction.guild).vc_category())
         
-        await self.config.guild(ctx.guild).vc_enabled.set(False)
+        await self.config.guild(interaction.guild).vc_enabled.set(False)
 
         # Delete every watch party voice channel after moving everyone to the default channel
-        async with self.config.guild(ctx.guild).vc_created() as vc_created:
+        async with self.config.guild(interaction.guild).vc_created() as vc_created:
             for vc in vc_created:
                 this_channel = self.bot.get_channel(vc_created[vc])
                 if this_channel is None:
@@ -290,43 +275,43 @@ class VLR(commands.Cog):
         if vc_category is not None:
             await vc_category.delete(reason="VLR VC Disabled")
         
-        await ctx.send(f"Match party voice channel creation disabled.")
+        await interaction.response.send_message(f"Match party voice channels disabled", ephemeral=True)
         
 
-    @command_vlr_vc.command(name="force")
-    @commands.bot_has_guild_permissions(manage_channels=True)
-    async def command_vlr_vc_force(self, ctx: commands.Context, url: str):
-        """ Force-create a watch-party voice channel with a vlr match url. 
+    # @command_vlr_vc.command(name="force")
+    # @commands.bot_has_guild_permissions(manage_channels=True)
+    # async def command_vlr_vc_force(self, ctx: commands.Context, url: str):
+    #     """ Force-create a watch-party voice channel with a vlr match url. 
         
-        Example: !vlr vc force https://www.vlr.gg/111111/link-to-match-page
-        """
+    #     Example: !vlr vc force https://www.vlr.gg/111111/link-to-match-page
+    #     """
         
-        if not validate_match_url(url):
-            await ctx.send(f"{url} is not a valid VLR match URL")
+    #     if not validate_match_url(url):
+    #         await ctx.send(f"{url} is not a valid VLR match URL")
 
-        # Get HTML response
-        response = requests.get(url)
-        # Handle non-200 response
-        if response.status_code != 200:
-            await ctx.send(f"Error: {url} responded with {response.status_code}")
-            return
-        # Create soup
-        soup = BeautifulSoup(response.content, 'html.parser')
+    #     # Get HTML response
+    #     response = requests.get(url)
+    #     # Handle non-200 response
+    #     if response.status_code != 200:
+    #         await ctx.send(f"Error: {url} responded with {response.status_code}")
+    #         return
+    #     # Create soup
+    #     soup = BeautifulSoup(response.content, 'html.parser')
 
-        # Team information
-        team_A = soup.find(class_=["match-header-link-name mod-1"]).get_text(strip=True)
-        team_B = soup.find(class_=["match-header-link-name mod-2"]).get_text(strip=True)
-        matchup_text = f"{'-'.join(team_A.split(' '))}-vs-{'-'.join(team_B.split(' '))}"
+    #     # Team information
+    #     team_A = soup.find(class_=["match-header-link-name mod-1"]).get_text(strip=True)
+    #     team_B = soup.find(class_=["match-header-link-name mod-2"]).get_text(strip=True)
+    #     matchup_text = f"{'-'.join(team_A.split(' '))}-vs-{'-'.join(team_B.split(' '))}"
 
-        # Create VC
-        created_channel = await self._create_vc(ctx.guild, url, matchup_text)
-        await ctx.send(f"Match party voice channel created: <#{created_channel.id}>")
+    #     # Create VC
+    #     created_channel = await self._create_vc(ctx.guild, url, matchup_text)
+    #     await ctx.send(f"Match party voice channel created: <#{created_channel.id}>")
 
-        # Update notified so that when results are sent, VC will also be destroyed naturally
-        notified = await self.config.guild(ctx.guild).notified()
-        if url not in notified:
-            notified.append(url)
-            await self.config.guild(ctx.guild).notified.set(notified)
+    #     # Update notified so that when results are sent, VC will also be destroyed naturally
+    #     notified = await self.config.guild(ctx.guild).notified()
+    #     if url not in notified:
+    #         notified.append(url)
+    #         await self.config.guild(ctx.guild).notified.set(notified)
 
     async def _create_vc(self, guild: discord.Guild, url: str, name: str):
         """Create a watch party VC
@@ -337,8 +322,8 @@ class VLR(commands.Cog):
         vc_category_id = await self.config.guild(guild).vc_category()
         vc_category = guild.get_channel(vc_category_id)
         if vc_category is None:
-            category = await ctx.guild.create_category("VLR Watch Parties")
-            await self.config.guild(ctx.guild).vc_category.set(category.id)
+            category = await guild.create_category("VLR Watch Parties")
+            await self.config.guild(guild).vc_category.set(category.id)
             vc_category = guild.get_channel(vc_category_id)
 
         # Create VC
@@ -564,20 +549,21 @@ class VLR(commands.Cog):
             subscribed = False
             reason = ""
 
-            # Substring match to find subscribed event
-            for se in sub_event:
-                if se in match['event']:
+            # Substring match to find subscribed team
+            for st in sub_team:
+                if st.lower() in match['teams'][0]['name'].lower() or st.lower() in match['teams'][1]['name'].lower():
                     subscribed = True
-                    reason = f"Event: {se}"
+                    reason = f"Team: {st}"
                     break
-            
-            # Exact string match to find subscribed team
+
+            # Substring match to find subscribed event
             if not subscribed:
-                for st in sub_team:
-                    if st == match['teams'][0]['name'] or st == match['teams'][1]['name']:
+                for se in sub_event:
+                    if se == "ALL" or all(s in match['event'] for s in se.split(' ')):
                         subscribed = True
-                        reason = f"Team: {st}"
+                        reason = f"Event: {se}"
                         break
+            
             
             return subscribed, reason
 
@@ -723,7 +709,7 @@ class VLR(commands.Cog):
     # PARSING LOOP TASK #
     #####################
 
-    @tasks.loop(seconds=300)
+    @tasks.loop(seconds=60)
     async def parse(self):
         """ Loop to check for matches from VLR """
         await self._getmatches()
@@ -736,25 +722,25 @@ class VLR(commands.Cog):
         # Don't start parsing until the bot is ready
         await self.bot.wait_until_ready()
 
-    @command_vlr.command(name='interval')
-    @checks.is_owner()  # Because this is a global parameter
-    async def vlr_interval(self, ctx: commands.Context, seconds: int = 300):
-        """Set how often to retrieve matches from vlr in seconds. Defaults to 300."""
-        self.POLLING_RATE = seconds
-        self.parse.change_interval(seconds=seconds)
-        await ctx.send(f"Interval changed to {seconds} sec.")
+    # @command_vlr.command(name='interval')
+    # @checks.is_owner()  # Because this is a global parameter
+    # async def vlr_interval(self, ctx: commands.Context, seconds: int = 300):
+    #     """Set how often to retrieve matches from vlr in seconds. Defaults to 300."""
+    #     self.POLLING_RATE = seconds
+    #     self.parse.change_interval(seconds=seconds)
+    #     await ctx.send(f"Interval changed to {seconds} sec.")
 
-    @command_vlr.command(name='update')
-    @checks.is_owner()  # Because this runs a scrape
-    async def vlr_update(self, ctx: commands.Context):
-        """Force update matches from VLR."""
-        # Useful if we missed a polling cycle due to VLR server error
-        # Notifications can be sent because caching prevents duplicates
-        await self._getmatches()
-        await self._getresults()
-        await self._sendnotif()
-        await self._clear_notif_cache()
-        await ctx.send("Updated matches from VLR.")
+    # @command_vlr.command(name='update')
+    # @checks.is_owner()  # Because this runs a scrape
+    # async def vlr_update(self, ctx: commands.Context):
+    #     """Force update matches from VLR."""
+    #     # Useful if we missed a polling cycle due to VLR server error
+    #     # Notifications can be sent because caching prevents duplicates
+    #     await self._getmatches()
+    #     await self._getresults()
+    #     await self._sendnotif()
+    #     await self._clear_notif_cache()
+    #     await ctx.send("Updated matches from VLR.")
     
     # @command_vlr.command(name='debug')
     # @checks.is_owner()
@@ -784,7 +770,7 @@ class VLR(commands.Cog):
     # LIST MATCHES #
     ################
 
-    async def _matchlist(self, ctx: commands.Context, n: int = 5, cond: str = "Valorant"):
+    async def _matchlist(self, interaction: discord.Interaction, n: int = 5, cond: str = "Valorant"):
         """Helper function for printing matchlists"""
 
         # Don't print more than 20 matches at any point
@@ -835,47 +821,20 @@ class VLR(commands.Cog):
             embed.add_field(name=embed_name, value=embed_value, inline=False)
 
         # Send embed
-        await ctx.send(embed=embed, allowed_mentions=None)
+        await interaction.respond.send_message(embed=embed, allowed_mentions=None)
 
-    @command_vlr.group(name="matches")
-    async def command_vlr_matches(self, ctx: commands.Context):
+    @app_commands.command(name="matches", description="List upcoming matches")
+    @app_commands.describe(category="Category of matches to include", n="Number of matches to list, up to 20")
+    async def matches(self, interaction: discord.Interaction, category: Literal["All", "VCT", "Game Changers"], n: int):
         """Get upcoming Valorant esports matches."""
+        await self._matchlist(interaction, n, cond=category)
 
-    @command_vlr_matches.command(name="all")
-    async def command_vlr_matches_all(self, ctx: commands.Context, n: int = 5):
-        """Get all upcoming Valorant esports matches. Defaults to 5, up to 20.
-        
-        Defaults to 5, but request up to 20.
-        Example: [p]vlr matches all 20
-        """
-
-        await self._matchlist(ctx, n)
-
-    @command_vlr_matches.command(name="vct")
-    async def command_vlr_matches_vct(self, ctx: commands.Context, n: int = 5):
-        """Get upcoming VCT matches. Defaults to 5, up to 20.
-        
-        Filters for "Champions Tour" in the event string.
-        Example: [p]vlr matches vct 20
-        """
-
-        await self._matchlist(ctx, n, cond="VCT")
-
-    @command_vlr_matches.command(name="gc")
-    async def command_vlr_matches_gc(self, ctx: commands.Context, n: int = 5):
-        """Get upcoming Game Changers matches. Defaults to 5, up to 20.
-        
-        Filters for "Game Changers" in the event string.
-        Example: [p]vlr matches gc 20
-        """
-
-        await self._matchlist(ctx, n, cond="Game Changers")
     
     ################
     # LIST RESULTS #
     ################
 
-    async def _resultlist(self, ctx: commands.Context, n: int = 5, cond: str = "Valorant"):
+    async def _resultlist(self, interaction = discord.Interaction, n: int = 5, cond: str = "Valorant"):
         """Helper function for printing resultlists"""
 
         # Don't print more than 20 matches at any point
@@ -928,37 +887,11 @@ class VLR(commands.Cog):
             embed.add_field(name=embed_name, value=embed_value, inline=False)
 
         # Send embed
-        await ctx.send(embed=embed, allowed_mentions=None)
+        await interaction.response.send_message(embed=embed, allowed_mentions=None)
 
-    @command_vlr.group(name="results")
-    async def command_vlr_results(self, ctx: commands.Context):
+
+    @app_commands.command(name="results", description="List match results")
+    @app_commands.describe(category="Category of results to include", n="Number of results to list, up to 20")
+    async def results(self, interaction: discord.Interaction, category: Literal["All", "VCT", "Game Changers"], n: int):
         """Get completed Valorant esports results."""
-
-    @command_vlr_results.command(name="all")
-    async def command_vlr_results_all(self, ctx: commands.Context, n: int = 5):
-        """Get all completed Valorant esports results. Defaults to 5, up to 20.
-        
-        Example: [p] vlr results 20
-        """
-
-        await self._resultlist(ctx, n)
-
-    @command_vlr_results.command(name="vct")
-    async def command_vlr_results_vct(self, ctx: commands.Context, n: int = 5):
-        """Get completed VCT results. Defaults to 5, up to 20.
-        
-        Filters for "Champions Tour" in the event string.
-        Example: [p]vlr results vct 20
-        """
-
-        await self._resultlist(ctx, n, cond="VCT")
-
-    @command_vlr_results.command(name="gc")
-    async def command_vlr_results_gc(self, ctx: commands.Context, n: int = 5):
-        """Get completed Game Changers results. Defaults to 5, up to 20.
-        
-        Filters for "Game Changers" in the event string.
-        Example: [p]vlr results gc 20
-        """
-
-        await self._resultlist(ctx, n, cond="Game Changers")
+        await self._matchlist(interaction, n, cond=category)
