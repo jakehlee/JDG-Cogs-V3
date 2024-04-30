@@ -177,16 +177,11 @@ class VLR(commands.Cog):
                 await interaction.response.send_message(f"Not subscribed to this event.", ephemeral=True)
 
     @sub.command(name="team", description="Subscribe to notifications for a team", extras={'red_force_enable': True})
-    @app_commands.describe(team="The team name to receive notifications for")
+    @app_commands.describe(team="Team name must be exactly how it is spelled on vlr.gg")
     @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
     async def sub_team(self, interaction: discord.Interaction, team: str):
-        """Subscribe to a team.
-
-        We do our best to match the string given here to the team
-        For example, everything is set to lowercase before comparison
-        and we do a 'in' check instead of a == so that "NRG" still matches "NRG Esports"
-        """
+        """Subscribe to a team."""
 
         async with self.config.guild(interaction.guild).sub_team() as sub_team:
             if team in sub_team:
@@ -196,7 +191,7 @@ class VLR(commands.Cog):
                 await interaction.response.send_message(f"Subscribed to {team}", ephemeral=True)
 
     @unsub.command(name="team", description="Unsubscribe from notifications for a team", extras={'red_force_enable': True})
-    @app_commands.describe(team="The team name to stop receive notifications for")
+    @app_commands.describe(team="Team name must be exactly how it is spelled on vlr.gg")
     @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
     async def unsub_team(self, interaction: discord.Interaction, team: str):
@@ -560,7 +555,7 @@ class VLR(commands.Cog):
 
             # Substring match to find subscribed team
             for st in sub_team:
-                if st.lower() in match['teams'][0]['name'].lower() or st.lower() in match['teams'][1]['name'].lower():
+                if st == match['teams'][0]['name'] or st == match['teams'][1]['name']:
                     subscribed = True
                     reason = f"Team: {st}"
                     break
