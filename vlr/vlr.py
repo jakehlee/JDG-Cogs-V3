@@ -88,6 +88,11 @@ class VLR(commands.Cog):
         self.parse.cancel()
         self.command_vlr_vc_disable()
 
+    async def on_guild_join(self, guild):
+        # This is illegal for red cogs but it's for a standalone bot
+        await self.bot.tree.sync(guild=guild)
+        print(f"Joined a new guild {guild.name}")
+
     vlr = app_commands.Group(name='vlr', description="Commands for Valorie", extras={'red_force_enable': True})
 
     vlr_config = app_commands.Group(name='config', description="Valorie configuration commands", extras={'red_force_enable': True}, parent=vlr)
@@ -765,7 +770,8 @@ class VLR(commands.Cog):
         """ Periodically clear the notification cache to prevent it from growing too large """
         async with self.config.notify_cache() as notify_cache:
             # For each item in the notify_cache dictionary, check if the 'timestamp' is older than 24 hours
-            for key in notify_cache.keys():
+            keys = list(notify_cache.keys())
+            for key in keys:
                 if (datetime.now(timezone.utc) - datetime.fromisoformat(notify_cache[key]['timestamp'])).total_seconds() > 86400:
                     del notify_cache[key]
 
